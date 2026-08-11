@@ -5,6 +5,8 @@ kalshi_private_key.pem
 market_data.csv
 market_data_old.csv
 collect_data.log
+forecast_log.csv
+log_forecast.log
 
 # python
 .venv/
