@@ -1,2 +1,12 @@
 kalshi_private_key.pem
 .env
+
+# generated data / logs, not source
+market_data.csv
+market_data_old.csv
+collect_data.log
+
+# python
+.venv/
+__pycache__/
+*.pyc

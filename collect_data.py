@@ -6,10 +6,32 @@ from datetime import datetime, timezone
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 CSV_FILE = "market_data.csv"
 
-def get_markets(limit=100):
-    response = requests.get(f"{BASE_URL}/markets", params={"limit": limit, "status": "open"})
-    response.raise_for_status()
+# A handful of well-known, actively traded series to track
+SERIES_TO_TRACK = [
+    "KXHIGHNY",     # Highest temperature in NYC today
+    "KXFEDHIKE",    # Next Fed rate hike
+    "KXCPI",        # CPI / inflation
+    "KXBTCMAX150",  # Will Bitcoin hit $150k
+    "KXEGGS",       # Egg prices
+]
+
+def get_markets_for_series(series_ticker):
+    response = requests.get(
+        f"{BASE_URL}/markets",
+        params={"series_ticker": series_ticker, "status": "open"}
+    )
+    if response.status_code != 200:
+        print(f"  Skipping {series_ticker}: got status {response.status_code}")
+        return []
     return response.json()["markets"]
+
+def collect_all_tracked_markets():
+    all_markets = []
+    for series in SERIES_TO_TRACK:
+        markets = get_markets_for_series(series)
+        print(f"{series}: found {len(markets)} open markets")
+        all_markets.extend(markets)
+    return all_markets
 
 def save_snapshot(markets):
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -32,6 +54,6 @@ def save_snapshot(markets):
             ])
 
 if __name__ == "__main__":
-    markets = get_markets()
+    markets = collect_all_tracked_markets()
     save_snapshot(markets)
     print(f"Saved {len(markets)} markets to {CSV_FILE}")
