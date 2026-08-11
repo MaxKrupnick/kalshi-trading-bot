@@ -46,11 +46,11 @@ def save_snapshot(markets):
                 timestamp,
                 m.get("ticker"),
                 m.get("title"),
-                m.get("yes_bid"),
-                m.get("yes_ask"),
-                m.get("no_bid"),
-                m.get("no_ask"),
-                m.get("volume"),
+                m.get("yes_bid_dollars"),
+                m.get("yes_ask_dollars"),
+                m.get("no_bid_dollars"),
+                m.get("no_ask_dollars"),
+                m.get("volume_fp"),
             ])
 
 if __name__ == "__main__":

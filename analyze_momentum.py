@@ -17,18 +17,13 @@ def calculate_momentum(rows_by_ticker):
         # sort by timestamp so "first" and "last" are actually chronological
         rows.sort(key=lambda r: r["timestamp"])
 
-        if len(rows) < 2:
-            continue  # need at least 2 snapshots to measure movement
+        # only rows with a real quote count towards momentum
+        quoted_rows = [r for r in rows if r["yes_bid"] not in ("", "None")]
+        if len(quoted_rows) < 2:
+            continue  # need at least 2 quoted snapshots to measure movement
 
-        first_price = rows[0]["yes_bid"]
-        last_price = rows[-1]["yes_bid"]
-
-        # skip markets with missing price data
-        if first_price in ("", "None") or last_price in ("", "None"):
-            continue
-
-        first_price = int(first_price)
-        last_price = int(last_price)
+        first_price = float(quoted_rows[0]["yes_bid"])
+        last_price = float(quoted_rows[-1]["yes_bid"])
         change = last_price - first_price
 
         results.append({
@@ -37,7 +32,7 @@ def calculate_momentum(rows_by_ticker):
             "first_price": first_price,
             "last_price": last_price,
             "change": change,
-            "num_snapshots": len(rows),
+            "num_snapshots": len(quoted_rows),
         })
 
     results.sort(key=lambda r: abs(r["change"]), reverse=True)
