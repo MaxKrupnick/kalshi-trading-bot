@@ -51,7 +51,7 @@ def calculate_features(rows_by_ticker):
         })
 
     # widest volatility first, but only among markets that are actually quoted (liquid enough to trade)
-    results.sort(key=lambda r: (r["avg_spread"] is None, r["volatility"]), reverse=True)
+    results.sort(key=lambda r: (r["avg_spread"] is not None, r["volatility"]), reverse=True)
     return results
 
 
