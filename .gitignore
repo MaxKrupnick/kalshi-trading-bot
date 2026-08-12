@@ -5,6 +5,7 @@ kalshi_private_key.pem
 market_data.csv
 market_data_old.csv
 market_data_backfill.csv
+market_data_settled.csv
 collect_data.log
 forecast_log.csv
 log_forecast.log
