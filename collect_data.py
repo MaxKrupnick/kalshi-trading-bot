@@ -13,6 +13,12 @@ SERIES_TO_TRACK = [
     "KXCPI",        # CPI / inflation
     "KXBTCMAX150",  # Will Bitcoin hit $150k
     "KXEGGS",       # Egg prices
+    "KXNFLGAME",    # NFL game winner
+    "KXMLBGAME",    # MLB game winner
+    "KXWNBAGAME",   # WNBA game winner
+    "KXPAYROLLS",   # Nonfarm payrolls
+    "KXU3",         # Unemployment rate
+    "KXPCECORE",    # Core PCE inflation (Fed's preferred gauge)
 ]
 
 def get_markets_for_series(series_ticker):
