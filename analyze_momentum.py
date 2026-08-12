@@ -1,7 +1,8 @@
 import csv
+import sys
 from collections import defaultdict
 
-CSV_FILE = "market_data.csv"
+CSV_FILE = sys.argv[1] if len(sys.argv) > 1 else "market_data.csv"
 
 def load_data():
     rows_by_ticker = defaultdict(list)

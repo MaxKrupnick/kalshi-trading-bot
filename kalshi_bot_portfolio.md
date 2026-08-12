@@ -27,14 +27,34 @@ that gap is the edge.
    the forecast is), compares it to Kalshi's price, and surfaces the edge.
 4. **`analyze_momentum.py` / `analyze_features.py`** — supporting analysis (price movement,
    bid-ask spread, volatility) over the collected data.
+5. **`backfill_prices.py`** — pulls ~30 days of real historical price data from Kalshi's
+   `candlesticks` API, so backtesting doesn't have to wait weeks for the live collector to
+   accumulate history from scratch.
 
-## Notable problem I caught
+## Notable problems I caught
 
-Kalshi's API returns price fields as `yes_bid_dollars`, `yes_ask_dollars`, etc. — not
-`yes_bid`, `yes_ask` like an earlier version of the script assumed. Every price collected
-before the fix was silently empty (the script never errored, it just recorded nothing
-useful). Caught it by checking the raw API response directly instead of trusting the script
-was working, then fixed the collector and reprocessed the analysis scripts to match.
+**Silently empty price data.** Kalshi's API returns price fields as `yes_bid_dollars`,
+`yes_ask_dollars`, etc. — not `yes_bid`, `yes_ask` like an earlier version of the script
+assumed. Every price collected before the fix was silently empty (the script never errored,
+it just recorded nothing useful). Caught it by checking the raw API response directly
+instead of trusting the script was working, then fixed the collector and reprocessed the
+analysis scripts to match.
+
+**Same column name, different meaning across data sources.** `collect_data.py`'s `volume`
+column is cumulative volume since the market opened (from Kalshi's `/markets` endpoint).
+`backfill_prices.py`'s `volume` column is *per-hour* trading volume (from the
+`candlesticks` endpoint) — often legitimately 0 for illiquid hours. Both files use the same
+column name for genuinely different metrics; merging or comparing them directly without
+accounting for that would produce misleading results. Documented in `backfill_prices.py`
+and here rather than "fixed," since both values are correct for their own source — the
+risk is conflating them, not a bug in either.
+
+**Lookahead bias, avoided rather than caught.** Considered backfilling weather-forecast
+accuracy the same way as prices, but NWS's API only returns the *current* forecast, not
+what was forecast in the past. Substituting actual historical outcomes as a stand-in for
+"what the forecast said" would make the calibration look artificially good — it's
+information that wouldn't have been available at the time. That piece has to accumulate in
+real time via `log_forecast.py` instead; no shortcut.
 
 ## Current status
 

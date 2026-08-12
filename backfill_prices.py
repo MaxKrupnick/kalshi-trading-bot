@@ -54,6 +54,11 @@ def candle_to_row(candle, ticker, title):
         yes_ask,
         no_bid,
         no_ask,
+        # NOTE: this is per-candle (this hour's) trading volume, often 0 for
+        # illiquid hours. Different meaning from the "volume" column in
+        # market_data.csv, which is collect_data.py's cumulative volume
+        # since the market opened (from Kalshi's /markets endpoint). Same
+        # column name, different metric -- don't merge/compare directly.
         to_float_or_none(candle.get("volume_fp")),
     ]
 
