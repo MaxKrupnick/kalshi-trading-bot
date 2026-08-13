@@ -27,9 +27,14 @@ that gap is the edge.
    the forecast is), compares it to Kalshi's price, and surfaces the edge.
 4. **`analyze_momentum.py` / `analyze_features.py`** — supporting analysis (price movement,
    bid-ask spread, volatility) over the collected data.
-5. **`backfill_prices.py`** — pulls ~30 days of real historical price data from Kalshi's
+5. **`backfill_prices.py`** / **`backfill_settled.py`** — pull ~30 days of real historical
+   price data (and, for settled markets, the actual yes/no outcome) from Kalshi's
    `candlesticks` API, so backtesting doesn't have to wait weeks for the live collector to
    accumulate history from scratch.
+6. **`fetch_actual_temp.py`** — pulls the real recorded high temperature from NWS's Central
+   Park station, to eventually measure how accurate the logged forecasts actually were.
+7. **`backtest_calibration.py`** — the first real backtest: checks whether Kalshi's own
+   price was a well-calibrated probability, using the settled-markets data.
 
 ## Notable problems I caught
 
@@ -56,6 +61,17 @@ what was forecast in the past. Substituting actual historical outcomes as a stan
 information that wouldn't have been available at the time. That piece has to accumulate in
 real time via `log_forecast.py` instead; no shortcut.
 
+**A settlement artifact that broke the first backtest.** The first run of
+`backtest_calibration.py` had every single market's "price right before settlement" land in
+the exact same bucket (55% every time) — obviously wrong. Traced it to Kalshi's
+`candlesticks` API reporting a degenerate `yes_bid=0 / yes_ask=1` placeholder for the candle
+right after a market closes (the order book is empty, not actually priced at 50/50). Fixed
+by excluding those placeholder quotes before picking the latest real price. Result after the
+fix: early prices are only modestly predictive (Brier score 0.218, barely better than a
+0.25 coin-flip baseline), but prices right before settlement are well-calibrated (Brier
+0.066) — real evidence that any edge has to come from information the market hasn't priced
+in yet, not from trading close to resolution.
+
 ## Current status
 
 - Data collection running continuously (market prices + weather forecasts).
@@ -63,11 +79,15 @@ real time via `log_forecast.py` instead; no shortcut.
 - Forecast uncertainty currently uses NWS's published national accuracy stats as a
   starting estimate; collecting forecast-vs-actual data to replace it with a real
   measured value specific to this pipeline.
+- First real backtest (price calibration) done — see finding above. Confirms the strategy
+  direction; doesn't yet test the weather fair-value model itself (still waiting on
+  forecast-accuracy data).
 
 ## Roadmap
 
 - [ ] Measure real forecast accuracy, calibrate the weather model
-- [ ] Backtest the strategy against historical data
+- [x] First backtest (price calibration) — see above
+- [ ] Backtest the weather fair-value strategy itself against historical data
 - [ ] Paper trading (simulate trades without real money)
 - [ ] Risk management (position sizing, stop-loss)
 - [ ] Live order execution
