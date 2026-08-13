@@ -72,6 +72,18 @@ fix: early prices are only modestly predictive (Brier score 0.218, barely better
 0.066) — real evidence that any edge has to come from information the market hasn't priced
 in yet, not from trading close to resolution.
 
+**A confound in the category comparison, caught before drawing a conclusion from it.**
+Breaking calibration down by category (weather/sports/economics) showed sports as the least
+well-calibrated early on — a good sign for building a sports model next. But "early" meant
+"first observed price," and different market types have very different lifespans (weather
+markets exist ~1-2 days, sports/economics markets exist for weeks) — so the comparison could
+have just been measuring "how far out Kalshi lists the market," not real mispricing. Fixed
+by comparing at a fixed lead time (24h before close) instead, with a fallback-rate check to
+confirm each category actually had enough history for that to be meaningful. The finding
+held up: sports is still barely better than a coin flip 24h out (Brier 0.234, only 1%
+fallback), weather is well-calibrated even a day out (Brier 0.100) — real evidence, not an
+artifact, that sports is the strongest next category to build a fair-value model for.
+
 ## Current status
 
 - Data collection running continuously (market prices + weather forecasts).
