@@ -55,7 +55,7 @@ def backfill_settled():
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow(
-                ["timestamp", "ticker", "title", "yes_bid", "yes_ask", "no_bid", "no_ask", "volume", "result"]
+                ["timestamp", "ticker", "title", "yes_bid", "yes_ask", "no_bid", "no_ask", "volume", "result", "series"]
             )
 
         total_rows = 0
@@ -68,6 +68,7 @@ def backfill_settled():
                 for candle in candles:
                     row = candle_to_row(candle, m["ticker"], m.get("title"))
                     row.append(result)
+                    row.append(series)  # ticker naming isn't consistent enough to infer this reliably
                     writer.writerow(row)
                 total_rows += len(candles)
                 time.sleep(0.3)  # be polite to the API's rate limit
