@@ -13,6 +13,7 @@ sports_edge_log.csv
 log_sports_edge.log
 paper_trades.csv
 paper_trade.log
+resolve_paper_trades.log
 
 # python
 .venv/
