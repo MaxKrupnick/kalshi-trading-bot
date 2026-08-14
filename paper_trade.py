@@ -10,10 +10,9 @@ EDGE_THRESHOLD = 0.05  # minimum edge (vs actual ask price, not mid) to "trade"
 POSITION_SIZE_DOLLARS = 10  # fixed notional per paper trade -- simplest possible sizing
 
 
-def get_weather_opportunities():
-    markets = weather_fair_value.get_kxhighny_markets()
-    forecast_periods = weather_fair_value.get_nws_forecast_periods()
-    comparisons = weather_fair_value.build_comparisons(markets, forecast_periods)
+def weather_comparisons_to_opportunities(comparisons):
+    """Normalize weather_fair_value comparisons that were ALREADY fetched
+    elsewhere (e.g. by log_weather_edge.py), instead of fetching again here."""
     for c in comparisons:
         yield {
             "source": "weather",
@@ -23,6 +22,16 @@ def get_weather_opportunities():
             "yes_bid": c["yes_bid"],
             "yes_ask": c["yes_ask"],
         }
+
+
+def get_weather_opportunities():
+    """Standalone fetch, for manual/ad-hoc runs only. Cron should use
+    weather_comparisons_to_opportunities() with data log_weather_edge.py
+    already fetched instead, to avoid a redundant fetch+compute."""
+    markets = weather_fair_value.get_kxhighny_markets()
+    forecast_periods = weather_fair_value.get_nws_forecast_periods()
+    comparisons = weather_fair_value.build_comparisons(markets, forecast_periods)
+    yield from weather_comparisons_to_opportunities(comparisons)
 
 
 def sports_comparisons_to_opportunities(comparisons):
