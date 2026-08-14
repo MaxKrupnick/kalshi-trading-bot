@@ -16,6 +16,17 @@ estimate** than the market, for markets where a good external predictor exists.
 forecasts an 80% chance of exceeding a strike price but Kalshi is only pricing it at 40%,
 that gap is the edge.
 
+## Setup
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Needs a Kalshi API key (`.env`: `KALSHI_API_KEY_ID`) and, for the sports side, a free
+[The Odds API](https://theoddsapi.com) key (`.env`: `ODDS_API_KEY`).
+
 ## How it works
 
 1. **`collect_data.py`** — pulls live prices for tracked markets from the Kalshi API every
@@ -44,6 +55,10 @@ that gap is the edge.
    notional) hypothetical trade whenever the edge (measured against the actual price you'd
    pay, not the mid) clears a 5-point threshold. No real money moves; this is for building a
    track record before ever considering that.
+10. **`resolve_paper_trades.py`** — checks each open paper trade against Kalshi's actual
+    settlement, computes real P&L, and prints a running win-rate/total-P&L summary. Runs
+    every 30 minutes. Without this, paper trades would just sit as "open" forever with no
+    feedback loop.
 
 ## Notable problems I caught
 
