@@ -35,6 +35,11 @@ that gap is the edge.
    Park station, to eventually measure how accurate the logged forecasts actually were.
 7. **`backtest_calibration.py`** — the first real backtest: checks whether Kalshi's own
    price was a well-calibrated probability, using the settled-markets data.
+8. **`sports_fair_value.py`** — the second fair-value signal: pulls real sportsbook odds
+   (via The Odds API), de-vigs and averages them across books into a consensus probability,
+   and compares it to Kalshi's MLB game markets. **`log_sports_edge.py`** logs this hourly,
+   so a real edge (if one shows up before Kalshi's price catches up to a freshly-posted
+   sportsbook line) can actually be caught over time, not just guessed at from one snapshot.
 
 ## Notable problems I caught
 
@@ -84,6 +89,18 @@ held up: sports is still barely better than a coin flip 24h out (Brier 0.234, on
 fallback), weather is well-calibrated even a day out (Brier 0.100) — real evidence, not an
 artifact, that sports is the strongest next category to build a fair-value model for.
 
+**Comparing the wrong side of the same game.** The first run of `sports_fair_value.py` had
+both teams in the same matchup showing the *same* fair probability (e.g. both Philadelphia
+and Minnesota at 90%) — impossible, since two-outcome probabilities have to sum to ~100%.
+Traced it to always taking the *first*-listed team from the market title, regardless of
+which contract (`-MIN` vs `-PHI`) was actually being priced. Fixed by using
+`yes_sub_title`, which Kalshi already provides per-contract, instead of assuming position
+in the title. After the fix, the pairs correctly sum to ~1.0 and edges are small (~1-2
+cents) for the games currently matchable — expected, since the free odds-API tier only
+covers near-term games, and the calibration backtest already showed Kalshi is well-priced
+close to game time. The real test is whether an edge shows up *earlier*, which is what the
+hourly logging is for.
+
 ## Current status
 
 - Data collection running continuously (market prices + weather forecasts).
@@ -94,14 +111,16 @@ artifact, that sports is the strongest next category to build a fair-value model
 - First real backtest (price calibration) done — see finding above. Confirms the strategy
   direction; doesn't yet test the weather fair-value model itself (still waiting on
   forecast-accuracy data).
+- Second fair-value signal (MLB, via real sportsbook odds) built and logging hourly.
 
 ## Roadmap
 
 - [ ] Measure real forecast accuracy, calibrate the weather model
 - [x] First backtest (price calibration) — see above
 - [ ] Backtest the weather fair-value strategy itself against historical data
+- [x] Expand to sports (MLB) using the same external-data approach
+- [ ] See if a real sports edge shows up in the hourly logged data
 - [ ] Paper trading (simulate trades without real money)
 - [ ] Risk management (position sizing, stop-loss)
 - [ ] Live order execution
 - [ ] Dashboard (earnings, trade history, performance over time)
-- [ ] Expand to sports markets using the same external-data approach
