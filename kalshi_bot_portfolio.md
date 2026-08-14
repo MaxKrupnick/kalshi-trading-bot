@@ -40,6 +40,10 @@ that gap is the edge.
    and compares it to Kalshi's MLB game markets. **`log_sports_edge.py`** logs this hourly,
    so a real edge (if one shows up before Kalshi's price catches up to a freshly-posted
    sportsbook line) can actually be caught over time, not just guessed at from one snapshot.
+9. **`paper_trade.py`** — watches both fair-value signals and opens a fixed-size ($10
+   notional) hypothetical trade whenever the edge (measured against the actual price you'd
+   pay, not the mid) clears a 5-point threshold. No real money moves; this is for building a
+   track record before ever considering that.
 
 ## Notable problems I caught
 
@@ -101,6 +105,14 @@ covers near-term games, and the calibration backtest already showed Kalshi is we
 close to game time. The real test is whether an edge shows up *earlier*, which is what the
 hourly logging is for.
 
+**A quiet API-budget bug, caught before it happened.** Almost gave `paper_trade.py` its own
+hourly cron job to check sports opportunities — but it independently calls the odds API,
+and `log_sports_edge.py` already does too, so that would've silently doubled the free
+tier's usage (24 → 48 requests/day, over the 25/day limit) the first time a game slate was
+busy enough to hit it. Caught before wiring up the cron job, not after it started failing.
+Fixed by having `log_sports_edge.py` feed its already-fetched comparisons into paper
+trading directly, so there's only ever one odds-API call per hour, not two.
+
 ## Current status
 
 - Data collection running continuously (market prices + weather forecasts).
@@ -112,6 +124,9 @@ hourly logging is for.
   direction; doesn't yet test the weather fair-value model itself (still waiting on
   forecast-accuracy data).
 - Second fair-value signal (MLB, via real sportsbook odds) built and logging hourly.
+- Paper trading is live: both signals feed into it, hypothetical trades logged when edge
+  clears the threshold. No trades have resolved yet (needs time), so no track record to
+  evaluate yet — that's the next thing to watch for.
 
 ## Roadmap
 
@@ -120,7 +135,8 @@ hourly logging is for.
 - [ ] Backtest the weather fair-value strategy itself against historical data
 - [x] Expand to sports (MLB) using the same external-data approach
 - [ ] See if a real sports edge shows up in the hourly logged data
-- [ ] Paper trading (simulate trades without real money)
+- [x] Paper trading (simulate trades without real money)
+- [ ] Resolve paper trades against actual outcomes, see how the track record looks
 - [ ] Risk management (position sizing, stop-loss)
 - [ ] Live order execution
 - [ ] Dashboard (earnings, trade history, performance over time)
