@@ -18,6 +18,14 @@ def get_actual_high(target_date, max_retries=5):
     close proxy for NWS's official Daily Climatological Report high --
     the two can differ slightly due to rounding/methodology, but this is
     good enough to measure forecast error against.
+
+    NOTE (confirmed 2026-08-14): Kalshi's actual settlement source for
+    KXHIGHNY is "The Weather Company" via weather.com/kalshi's Daily
+    Climate Report for Central Park -- not raw NWS station observations
+    directly. Still the same underlying station/location, so the core
+    forecast-vs-price strategy is unaffected, but this proxy has a real
+    (not just theoretical) gap vs. Kalshi's true settlement value. Worth
+    revisiting if sigma calibration numbers look off later.
     """
     start_local = datetime.combine(target_date, time.min, tzinfo=NYC_TZ)
     end_local = start_local + timedelta(days=1)

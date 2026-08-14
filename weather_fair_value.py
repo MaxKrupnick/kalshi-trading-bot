@@ -33,6 +33,9 @@ def normal_cdf(x, mean, sigma):
     return 0.5 * (1 + math.erf((x - mean) / (sigma * math.sqrt(2))))
 
 
+SUPPORTED_STRIKE_TYPES = {"greater", "less", "between"}
+
+
 def get_kxhighny_markets():
     response = requests.get(
         f"{KALSHI_BASE_URL}/markets",
@@ -40,8 +43,7 @@ def get_kxhighny_markets():
     )
     response.raise_for_status()
     markets = response.json()["markets"]
-    # only "above X degrees" markets for now -- range/bucket markets need different math
-    return [m for m in markets if m.get("strike_type") == "greater"]
+    return [m for m in markets if m.get("strike_type") in SUPPORTED_STRIKE_TYPES]
 
 
 def get_nws_forecast_periods():
@@ -70,10 +72,29 @@ def find_daytime_period(periods, target_date):
     return None
 
 
-def model_probability(forecast_high, floor_strike, sigma):
-    # market resolves YES if actual high > floor_strike (integer degrees),
-    # so use floor_strike + 0.5 as the continuity-corrected cutoff
-    return 1 - normal_cdf(floor_strike + 0.5, forecast_high, sigma)
+def model_probability(strike_type, floor_strike, cap_strike, forecast_high, sigma):
+    """Probability of YES, using +/-0.5 continuity correction since the
+    underlying temperature is reported in whole degrees."""
+    if strike_type == "greater":
+        # YES if actual > floor_strike
+        return 1 - normal_cdf(floor_strike + 0.5, forecast_high, sigma)
+    if strike_type == "less":
+        # YES if actual < cap_strike (Kalshi uses cap_strike, not floor_strike, for "less" markets)
+        return normal_cdf(cap_strike - 0.5, forecast_high, sigma)
+    if strike_type == "between":
+        # YES if floor_strike <= actual <= cap_strike
+        return normal_cdf(cap_strike + 0.5, forecast_high, sigma) - normal_cdf(floor_strike - 0.5, forecast_high, sigma)
+    raise ValueError(f"unsupported strike_type: {strike_type}")
+
+
+def describe_strike(strike_type, floor_strike, cap_strike):
+    if strike_type == "greater":
+        return f"> {floor_strike}F"
+    if strike_type == "less":
+        return f"< {cap_strike}F"
+    if strike_type == "between":
+        return f"{floor_strike}-{cap_strike}F"
+    return "?"
 
 
 def to_float_or_none(value):
@@ -101,12 +122,18 @@ def build_comparisons(markets, forecast_periods, now=None):
             continue  # unquoted market, no meaningful market price to compare against
 
         market_mid = (yes_bid + yes_ask) / 2
-        model_prob = model_probability(forecast_high, m["floor_strike"], sigma)
+        strike_type = m["strike_type"]
+        floor_strike = m.get("floor_strike")
+        cap_strike = m.get("cap_strike")
+        model_prob = model_probability(strike_type, floor_strike, cap_strike, forecast_high, sigma)
 
         rows.append({
             "ticker": m["ticker"],
             "event_date": event_date,
-            "floor_strike": m["floor_strike"],
+            "strike_type": strike_type,
+            "floor_strike": floor_strike,
+            "cap_strike": cap_strike,
+            "description": describe_strike(strike_type, floor_strike, cap_strike),
             "forecast_high": forecast_high,
             "sigma": round(sigma, 1),
             "model_prob": model_prob,
@@ -131,9 +158,9 @@ if __name__ == "__main__":
         print("Sigma = lead-time-scaled forecast uncertainty, anchored to NWS's published RMSE "
               f"({SIGMA_AT_48H_F}F under 48h, {SIGMA_AT_120H_F}F beyond 120h) -- still a proxy, not yet\n"
               "measured against this pipeline's own forecast-vs-actual history.\n")
-        print(f"{'Ticker':<28} {'Date':<12} {'Strike':>7} {'FcstHigh':>9} {'Sigma':>6} {'ModelP':>7} {'MktMid':>7} {'Edge':>7}")
+        print(f"{'Ticker':<28} {'Date':<12} {'Strike':>10} {'FcstHigh':>9} {'Sigma':>6} {'ModelP':>7} {'MktMid':>7} {'Edge':>7}")
         for r in comparisons:
             print(
-                f"{r['ticker']:<28} {str(r['event_date']):<12} {r['floor_strike']:>7} "
+                f"{r['ticker']:<28} {str(r['event_date']):<12} {r['description']:>10} "
                 f"{r['forecast_high']:>9} {r['sigma']:>6} {r['model_prob']:>7.2f} {r['market_mid']:>7.2f} {r['edge']:>+7.2f}"
             )

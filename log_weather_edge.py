@@ -19,13 +19,14 @@ def log_comparisons():
     with open(LOG_FILE, "a", newline="") as f:
         writer = csv.writer(f)
         if not file_exists:
-            writer.writerow(
-                ["logged_at", "ticker", "floor_strike", "forecast_high", "sigma", "model_prob", "market_mid", "edge"]
-            )
+            writer.writerow([
+                "logged_at", "ticker", "strike_type", "floor_strike", "cap_strike",
+                "description", "forecast_high", "sigma", "model_prob", "market_mid", "edge",
+            ])
         for r in comparisons:
             writer.writerow([
-                logged_at, r["ticker"], r["floor_strike"], r["forecast_high"],
-                r["sigma"], r["model_prob"], r["market_mid"], r["edge"],
+                logged_at, r["ticker"], r["strike_type"], r["floor_strike"], r["cap_strike"],
+                r["description"], r["forecast_high"], r["sigma"], r["model_prob"], r["market_mid"], r["edge"],
             ])
 
     # Reuse this same fetch for paper trading instead of a second, redundant

@@ -17,7 +17,7 @@ def weather_comparisons_to_opportunities(comparisons):
         yield {
             "source": "weather",
             "ticker": c["ticker"],
-            "description": f"{c['ticker']} > {c['floor_strike']}F",
+            "description": f"{c['ticker']} {c['description']}",
             "model_prob": c["model_prob"],
             "yes_bid": c["yes_bid"],
             "yes_ask": c["yes_ask"],
