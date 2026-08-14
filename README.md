@@ -128,6 +128,19 @@ busy enough to hit it. Caught before wiring up the cron job, not after it starte
 Fixed by having `log_sports_edge.py` feed its already-fetched comparisons into paper
 trading directly, so there's only ever one odds-API call per hour, not two.
 
+**A real coverage gap, not a signal-quality problem.** Only ever saw 1 open paper trade at
+a time, because `weather_fair_value.py` only handled `strike_type == "greater"` markets —
+ignoring 10 of NYC's 12 currently open markets ("less than X" and "between X and Y" types).
+Rather than lower the trading threshold (which would add noise, not real opportunities),
+added the correct probability math for the other two strike types. Sanity-checked: the 6
+currently-quoted markets' probabilities for the same day sum to 1.00, confirming the
+partition is mutually exclusive and exhaustive. Result: 1 open trade → 4, from real added
+coverage, not lowered standards. Separately confirmed (while reading the rules text) that
+Kalshi's actual settlement source is "The Weather Company" via a weather.com portal, not
+NWS directly — same Central Park location, so the core strategy holds, but it sharpens an
+existing caveat that `fetch_actual_temp.py`'s raw-NWS-observation proxy has a real gap
+versus Kalshi's true settlement value, worth revisiting when sigma calibration happens.
+
 ## Current status
 
 - Data collection running continuously (market prices + weather forecasts).
@@ -139,6 +152,7 @@ trading directly, so there's only ever one odds-API call per hour, not two.
   direction; doesn't yet test the weather fair-value model itself (still waiting on
   forecast-accuracy data).
 - Second fair-value signal (MLB, via real sportsbook odds) built and logging hourly.
+- Weather now covers all 3 NYC strike types (above/below/range), not just "above X".
 - Paper trading is live: both signals feed into it, hypothetical trades logged when edge
   clears the threshold. No trades have resolved yet (needs time), so no track record to
   evaluate yet — that's the next thing to watch for.
