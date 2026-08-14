@@ -9,6 +9,8 @@ market_data_settled.csv
 collect_data.log
 forecast_log.csv
 log_forecast.log
+sports_edge_log.csv
+log_sports_edge.log
 
 # python
 .venv/
