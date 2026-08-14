@@ -1,5 +1,6 @@
 import csv
 import os
+from collections import defaultdict
 from datetime import datetime, timezone
 
 import weather_fair_value
@@ -7,7 +8,20 @@ import sports_fair_value
 
 PAPER_TRADES_FILE = "paper_trades.csv"
 EDGE_THRESHOLD = 0.05  # minimum edge (vs actual ask price, not mid) to "trade"
-POSITION_SIZE_DOLLARS = 10  # fixed notional per paper trade -- simplest possible sizing
+
+# Edge-weighted position sizing: $5 at the minimum qualifying edge, scaling
+# linearly up to a $20 cap so one high-conviction trade can't dominate.
+MIN_POSITION_DOLLARS = 5
+MAX_POSITION_DOLLARS = 20
+
+# Cap total exposure per underlying event (e.g. all of Boston's Aug-14 strike
+# markets share one real event: what the actual high temperature turns out to
+# be). Multiple bucket bets on the same city/game aren't independent -- they
+# all win or lose together off a single draw -- so sizing them as if they
+# were N separate risks understates real concentration. Found the gap when 5
+# simultaneous Boston positions ($50 total) turned out to be 5 correlated
+# bets on one number, not 5 diversified ones.
+MAX_EXPOSURE_PER_EVENT_DOLLARS = 30
 
 
 def weather_comparisons_to_opportunities(comparisons):
@@ -70,19 +84,42 @@ def best_side(opp):
     return "no", no_ask, no_edge
 
 
-def load_open_tickers():
-    if not os.path.isfile(PAPER_TRADES_FILE):
-        return set()
+def event_key(ticker):
+    """The shared underlying event for a contract ticker, e.g.
+    "KXHIGHNY-26AUG14-B85.5" -> "KXHIGHNY-26AUG14". Kalshi's ticker format is
+    consistently event_ticker + "-" + contract-specific suffix, so this
+    groups all contracts that resolve off the same single real-world draw
+    (same city+day for weather, same game for sports)."""
+    return ticker.rsplit("-", 1)[0]
+
+
+def position_size_for_edge(edge):
+    if edge <= EDGE_THRESHOLD:
+        return MIN_POSITION_DOLLARS
+    # linear ramp: threshold -> MIN, 4x threshold -> MAX, capped beyond that
+    scale = edge / EDGE_THRESHOLD
+    size = MIN_POSITION_DOLLARS * scale
+    return round(min(size, MAX_POSITION_DOLLARS), 2)
+
+
+def load_open_state():
+    """Returns (set of tickers with an open position, dict of event_key ->
+    dollars already committed to that event)."""
     open_tickers = set()
+    exposure_by_event = defaultdict(float)
+    if not os.path.isfile(PAPER_TRADES_FILE):
+        return open_tickers, exposure_by_event
+
     with open(PAPER_TRADES_FILE, newline="") as f:
         for row in csv.DictReader(f):
             if row["status"] == "open":
                 open_tickers.add(row["ticker"])
-    return open_tickers
+                exposure_by_event[event_key(row["ticker"])] += float(row["position_size_dollars"])
+    return open_tickers, exposure_by_event
 
 
-def log_trade(writer, opp, side, entry_price, edge):
-    contracts = round(POSITION_SIZE_DOLLARS / entry_price, 2) if entry_price > 0 else 0
+def log_trade(writer, opp, side, entry_price, edge, position_size):
+    contracts = round(position_size / entry_price, 2) if entry_price > 0 else 0
     writer.writerow([
         datetime.now(timezone.utc).isoformat(),
         opp["source"],
@@ -91,7 +128,7 @@ def log_trade(writer, opp, side, entry_price, edge):
         side,
         entry_price,
         edge,
-        POSITION_SIZE_DOLLARS,
+        position_size,
         contracts,
         "open",
         "",  # result, filled in once resolved
@@ -100,9 +137,27 @@ def log_trade(writer, opp, side, entry_price, edge):
 
 
 def evaluate_and_log(opportunity_iterables):
-    already_open = load_open_tickers()
+    already_open, exposure_by_event = load_open_state()
     file_exists = os.path.isfile(PAPER_TRADES_FILE)
     new_trades = 0
+
+    # Collect and rank all qualifying candidates by edge first, so when
+    # several compete for the same event's exposure budget, the strongest
+    # edge gets priority rather than whichever happened to be listed first.
+    candidates = []
+    for opportunities in opportunity_iterables:
+        for opp in opportunities:
+            if opp["ticker"] in already_open:
+                continue  # already have an open paper position here
+            if opp["yes_bid"] is None or opp["yes_ask"] is None:
+                continue
+
+            side, entry_price, edge = best_side(opp)
+            if edge < EDGE_THRESHOLD:
+                continue
+            candidates.append((edge, opp, side, entry_price))
+
+    candidates.sort(key=lambda c: c[0], reverse=True)
 
     with open(PAPER_TRADES_FILE, "a", newline="") as f:
         writer = csv.writer(f)
@@ -113,21 +168,20 @@ def evaluate_and_log(opportunity_iterables):
                 "contracts", "status", "result", "pnl",
             ])
 
-        for opportunities in opportunity_iterables:
-            for opp in opportunities:
-                if opp["ticker"] in already_open:
-                    continue  # already have an open paper position here
-                if opp["yes_bid"] is None or opp["yes_ask"] is None:
-                    continue
+        for edge, opp, side, entry_price in candidates:
+            key = event_key(opp["ticker"])
+            remaining_budget = MAX_EXPOSURE_PER_EVENT_DOLLARS - exposure_by_event[key]
+            if remaining_budget <= 0:
+                continue  # this event's exposure cap is already full
 
-                side, entry_price, edge = best_side(opp)
-                if edge < EDGE_THRESHOLD:
-                    continue
+            position_size = min(position_size_for_edge(edge), remaining_budget)
 
-                log_trade(writer, opp, side, entry_price, edge)
-                already_open.add(opp["ticker"])
-                new_trades += 1
-                print(f"  OPENED {opp['source']}/{side}: {opp['description']} @ {entry_price:.2f} (edge {edge:+.2f})")
+            log_trade(writer, opp, side, entry_price, edge, position_size)
+            already_open.add(opp["ticker"])
+            exposure_by_event[key] += position_size
+            new_trades += 1
+            print(f"  OPENED {opp['source']}/{side}: {opp['description']} @ {entry_price:.2f} "
+                  f"(edge {edge:+.2f}, size ${position_size:.2f})")
 
     return new_trades
 
