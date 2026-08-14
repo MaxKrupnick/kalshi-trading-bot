@@ -157,6 +157,18 @@ previously-open paper trades (both the newest batch and the original 4 NYC ones,
 shared the identical flaw) and re-ran fresh under the corrected model: 21 trades, more
 moderate edges.
 
+**Correlated risk hiding behind a diversified-looking count.** With 21 simultaneous open
+positions, noticed 5 of them were all Boston strikes for the same day — $50 total, but all
+resolving off one real number (Boston's actual high temperature), not 5 independent bets.
+Added edge-weighted position sizing ($5 at the minimum qualifying edge, scaling to a $20
+cap) and a $30 exposure cap per underlying event, grouping contracts by their shared event
+(derived from Kalshi's consistent ticker format, works for weather and sports alike without
+new stored fields). Left the 21 pre-existing trades as-is rather than resetting again —
+their edge calculations were correct, only the sizing discipline is new, and unwinding
+already-placed paper trades every time risk logic improves isn't how real position
+management works. New rules apply prospectively; several cities are already over the new
+cap from those trades, so new opportunities there are correctly blocked until some resolve.
+
 ## Current status
 
 - Data collection running continuously (market prices + weather forecasts).
@@ -171,8 +183,10 @@ moderate edges.
 - Weather now covers all 3 NYC strike types (above/below/range), not just "above X", and 6
   cities total instead of just NYC.
 - Paper trading is live: both signals feed into it, hypothetical trades logged when edge
-  clears the threshold. No trades have resolved yet (needs time), so no track record to
-  evaluate yet — that's the next thing to watch for.
+  clears the threshold, sized by edge magnitude with a per-event exposure cap. 21 open
+  positions, first resolutions expected the night of Aug 15.
+- Live dashboard (`dashboard.html`) shows current positions and P&L, regenerating every 5
+  minutes.
 
 ## Roadmap
 
@@ -183,6 +197,6 @@ moderate edges.
 - [ ] See if a real sports edge shows up in the hourly logged data
 - [x] Paper trading (simulate trades without real money)
 - [ ] Resolve paper trades against actual outcomes, see how the track record looks
-- [ ] Risk management (position sizing, stop-loss)
+- [x] Risk management (edge-weighted position sizing, per-event exposure caps)
 - [ ] Live order execution
-- [ ] Dashboard (earnings, trade history, performance over time)
+- [x] Dashboard (live-updating, via `build_dashboard.py`)
