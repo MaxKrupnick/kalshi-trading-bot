@@ -16,6 +16,8 @@ paper_trade.log
 resolve_paper_trades.log
 weather_edge_log.csv
 log_weather_edge.log
+dashboard.html
+build_dashboard.log
 
 # python
 .venv/
