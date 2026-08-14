@@ -59,6 +59,9 @@ Needs a Kalshi API key (`.env`: `KALSHI_API_KEY_ID`) and, for the sports side, a
     settlement, computes real P&L, and prints a running win-rate/total-P&L summary. Runs
     every 30 minutes. Without this, paper trades would just sit as "open" forever with no
     feedback loop.
+11. **`build_dashboard.py`** — generates a live-updating `dashboard.html` from
+    `paper_trades.csv` (summary stats, open positions, resolved trades). Regenerated every 5
+    minutes via cron, auto-refreshes in the browser every 60 seconds — no server needed.
 
 ## Notable problems I caught
 
