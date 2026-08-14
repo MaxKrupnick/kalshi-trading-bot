@@ -28,9 +28,7 @@ def get_weather_opportunities():
     """Standalone fetch, for manual/ad-hoc runs only. Cron should use
     weather_comparisons_to_opportunities() with data log_weather_edge.py
     already fetched instead, to avoid a redundant fetch+compute."""
-    markets = weather_fair_value.get_kxhighny_markets()
-    forecast_periods = weather_fair_value.get_nws_forecast_periods()
-    comparisons = weather_fair_value.build_comparisons(markets, forecast_periods)
+    comparisons = weather_fair_value.build_all_cities_comparisons()
     yield from weather_comparisons_to_opportunities(comparisons)
 
 

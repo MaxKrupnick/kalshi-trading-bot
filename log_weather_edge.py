@@ -9,9 +9,7 @@ LOG_FILE = "weather_edge_log.csv"
 
 
 def log_comparisons():
-    markets = weather_fair_value.get_kxhighny_markets()
-    forecast_periods = weather_fair_value.get_nws_forecast_periods()
-    comparisons = weather_fair_value.build_comparisons(markets, forecast_periods)
+    comparisons = weather_fair_value.build_all_cities_comparisons()
 
     logged_at = datetime.now(timezone.utc).isoformat()
     file_exists = os.path.isfile(LOG_FILE)
@@ -20,12 +18,12 @@ def log_comparisons():
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow([
-                "logged_at", "ticker", "strike_type", "floor_strike", "cap_strike",
+                "logged_at", "city", "ticker", "strike_type", "floor_strike", "cap_strike",
                 "description", "forecast_high", "sigma", "model_prob", "market_mid", "edge",
             ])
         for r in comparisons:
             writer.writerow([
-                logged_at, r["ticker"], r["strike_type"], r["floor_strike"], r["cap_strike"],
+                logged_at, r["city"], r["ticker"], r["strike_type"], r["floor_strike"], r["cap_strike"],
                 r["description"], r["forecast_high"], r["sigma"], r["model_prob"], r["market_mid"], r["edge"],
             ])
 
