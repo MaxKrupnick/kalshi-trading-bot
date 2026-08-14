@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timezone
 
 from sports_fair_value import build_comparisons
+from paper_trade import evaluate_and_log, sports_comparisons_to_opportunities
 
 LOG_FILE = "sports_edge_log.csv"
 
@@ -23,9 +24,14 @@ def log_comparisons():
                 logged_at, r["ticker"], r["team"], r["opponent"],
                 r["fair_prob"], r["num_books"], r["market_mid"], r["edge"],
             ])
-    return len(comparisons), unmatched
+
+    # Reuse this same fetch for paper trading instead of costing a second
+    # odds-API request -- the free tier is only 25 requests/day.
+    new_trades = evaluate_and_log([sports_comparisons_to_opportunities(comparisons)])
+
+    return len(comparisons), unmatched, new_trades
 
 
 if __name__ == "__main__":
-    count, unmatched = log_comparisons()
-    print(f"Logged {count} MLB comparisons to {LOG_FILE} ({unmatched} unmatched)")
+    count, unmatched, new_trades = log_comparisons()
+    print(f"Logged {count} MLB comparisons to {LOG_FILE} ({unmatched} unmatched), {new_trades} new paper trade(s)")

@@ -11,6 +11,8 @@ forecast_log.csv
 log_forecast.log
 sports_edge_log.csv
 log_sports_edge.log
+paper_trades.csv
+paper_trade.log
 
 # python
 .venv/

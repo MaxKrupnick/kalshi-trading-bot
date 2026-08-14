@@ -166,6 +166,8 @@ def build_comparisons():
             "opponent": opponent_full,
             "fair_prob": fair_prob,
             "num_books": num_books,
+            "yes_bid": yes_bid,
+            "yes_ask": yes_ask,
             "market_mid": market_mid,
             "edge": fair_prob - market_mid,
         })
