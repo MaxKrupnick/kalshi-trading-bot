@@ -141,6 +141,19 @@ NWS directly — same Central Park location, so the core strategy holds, but it 
 existing caveat that `fetch_actual_temp.py`'s raw-NWS-observation proxy has a real gap
 versus Kalshi's true settlement value, worth revisiting when sigma calibration happens.
 
+**A model bug a liquid market exposed.** Expanded weather from NYC alone to 6 cities
+(Chicago, Miami, Denver, LA, Boston), each with its NWS grid point verified against
+Kalshi's actual settlement station, not guessed from city coordinates. This surfaced a real
+flaw: the sigma curve had a flat 5.4°F floor for anything under 48 hours out, treating a
+same-day (~6h out) forecast the same as a 2-day-out one. A liquid, tightly-quoted Miami
+market ($6,367 volume, 3-cent spread) showed a ~55-point "edge" — implausible for a market
+that liquid, and a strong signal the *model* was wrong, not the market. Added a 12-hour
+anchor so near-term forecasts get properly tighter uncertainty (2.0°F, a reasoned estimate,
+not a verified citation like the other two anchors — flagged as such). Cleared all 30
+previously-open paper trades (both the newest batch and the original 4 NYC ones, which
+shared the identical flaw) and re-ran fresh under the corrected model: 21 trades, more
+moderate edges.
+
 ## Current status
 
 - Data collection running continuously (market prices + weather forecasts).
@@ -152,7 +165,8 @@ versus Kalshi's true settlement value, worth revisiting when sigma calibration h
   direction; doesn't yet test the weather fair-value model itself (still waiting on
   forecast-accuracy data).
 - Second fair-value signal (MLB, via real sportsbook odds) built and logging hourly.
-- Weather now covers all 3 NYC strike types (above/below/range), not just "above X".
+- Weather now covers all 3 NYC strike types (above/below/range), not just "above X", and 6
+  cities total instead of just NYC.
 - Paper trading is live: both signals feed into it, hypothetical trades logged when edge
   clears the threshold. No trades have resolved yet (needs time), so no track record to
   evaluate yet — that's the next thing to watch for.
