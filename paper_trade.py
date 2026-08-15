@@ -104,18 +104,23 @@ def position_size_for_edge(edge):
 
 def load_open_state():
     """Returns (set of tickers with an open position, dict of event_key ->
-    dollars already committed to that event)."""
+    dollars already committed to that event, set of event_keys that already
+    have an open *sports* position)."""
     open_tickers = set()
     exposure_by_event = defaultdict(float)
+    sports_events_taken = set()
     if not os.path.isfile(PAPER_TRADES_FILE):
-        return open_tickers, exposure_by_event
+        return open_tickers, exposure_by_event, sports_events_taken
 
     with open(PAPER_TRADES_FILE, newline="") as f:
         for row in csv.DictReader(f):
             if row["status"] == "open":
                 open_tickers.add(row["ticker"])
-                exposure_by_event[event_key(row["ticker"])] += float(row["position_size_dollars"])
-    return open_tickers, exposure_by_event
+                key = event_key(row["ticker"])
+                exposure_by_event[key] += float(row["position_size_dollars"])
+                if row["source"] == "sports":
+                    sports_events_taken.add(key)
+    return open_tickers, exposure_by_event, sports_events_taken
 
 
 def log_trade(writer, opp, side, entry_price, edge, position_size):
@@ -137,7 +142,7 @@ def log_trade(writer, opp, side, entry_price, edge, position_size):
 
 
 def evaluate_and_log(opportunity_iterables):
-    already_open, exposure_by_event = load_open_state()
+    already_open, exposure_by_event, sports_events_taken = load_open_state()
     file_exists = os.path.isfile(PAPER_TRADES_FILE)
     new_trades = 0
 
@@ -170,6 +175,17 @@ def evaluate_and_log(opportunity_iterables):
 
         for edge, opp, side, entry_price in candidates:
             key = event_key(opp["ticker"])
+
+            # A 2-team moneyline only has 2 possible outcomes, so "team A
+            # yes" and "team B no" are the same directional bet, not
+            # diversification -- taking both just doubles one view under two
+            # ticker labels. Weather doesn't have this problem: its multiple
+            # strike buckets are genuinely different, non-redundant views on
+            # the distribution, so only sports is restricted to one position
+            # per event.
+            if opp["source"] == "sports" and key in sports_events_taken:
+                continue
+
             remaining_budget = MAX_EXPOSURE_PER_EVENT_DOLLARS - exposure_by_event[key]
             if remaining_budget <= 0:
                 continue  # this event's exposure cap is already full
@@ -179,6 +195,8 @@ def evaluate_and_log(opportunity_iterables):
             log_trade(writer, opp, side, entry_price, edge, position_size)
             already_open.add(opp["ticker"])
             exposure_by_event[key] += position_size
+            if opp["source"] == "sports":
+                sports_events_taken.add(key)
             new_trades += 1
             print(f"  OPENED {opp['source']}/{side}: {opp['description']} @ {entry_price:.2f} "
                   f"(edge {edge:+.2f}, size ${position_size:.2f})")
