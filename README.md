@@ -169,6 +169,15 @@ already-placed paper trades every time risk logic improves isn't how real positi
 management works. New rules apply prospectively; several cities are already over the new
 cap from those trades, so new opportunities there are correctly blocked until some resolve.
 
+**The first real resolutions caught a real duplicate-bet bug.** 4 sports trades resolved
+first: 0/4, -$25.12. Two of the four turned out to be the same bet placed twice — Team A
+YES and Team B NO on the same 2-team MLB moneyline are economically identical (both only
+pay off if Team A wins), but they're different Kalshi tickers, so the code opened both as
+if they were independent opportunities. The per-event dollar cap kept it bounded ($12.20,
+under the $30 cap), but it wasn't real diversification, just one view under two labels —
+and both lost together, exactly as a duplicated bet would. Fixed by capping sports (not
+weather, whose strike buckets are genuinely non-redundant) to one open position per event.
+
 ## Current status
 
 - Data collection running continuously (market prices + weather forecasts).
