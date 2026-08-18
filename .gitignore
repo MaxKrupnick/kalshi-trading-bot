@@ -18,6 +18,7 @@ weather_edge_log.csv
 log_weather_edge.log
 dashboard.html
 build_dashboard.log
+liquidity_snapshot_cache.csv
 
 # python
 .venv/
