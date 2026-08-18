@@ -31,8 +31,8 @@ Needs a Kalshi API key (`.env`: `KALSHI_API_KEY_ID`) and, for the sports side, a
 
 1. **`collect_data.py`** — pulls live prices for tracked markets from the Kalshi API every
    15 minutes (via cron) and logs snapshots to `market_data.csv`.
-2. **`log_forecast.py`** — pulls NWS's forecast for NYC every hour and logs it to
-   `forecast_log.csv`, building a history to measure forecast accuracy over time.
+2. **`log_forecast.py`** — pulls NWS's forecast for all 6 tracked cities every hour and logs
+   it to `forecast_log.csv`, building a history to measure forecast accuracy over time.
 3. **`weather_fair_value.py`** — converts NWS's point forecast into a probability estimate
    (using a normal distribution around the forecast, with uncertainty scaled by how far out
    the forecast is), compares it to Kalshi's price, and surfaces the edge.
@@ -61,7 +61,24 @@ Needs a Kalshi API key (`.env`: `KALSHI_API_KEY_ID`) and, for the sports side, a
     feedback loop.
 11. **`build_dashboard.py`** — generates a live-updating `dashboard.html` from
     `paper_trades.csv` (summary stats, open positions, resolved trades). Regenerated every 5
-    minutes via cron, auto-refreshes in the browser every 60 seconds — no server needed.
+    minutes via cron, auto-refreshes in the browser every 60 seconds — no server needed. Also
+    watches each cron job's log file and shows a warning banner if one's gone quiet longer
+    than its expected schedule — added after a real ~48-hour silent outage (see below).
+12. **`calibrate_sigma.py`** — measures real forecast error (`forecast_log.csv` vs. actual
+    recorded highs) bucketed by lead time, and compares it to the hand-set uncertainty curve
+    `weather_fair_value.py` currently assumes — the first step toward replacing an
+    NWS-national-average proxy with a value measured against this pipeline's own forecasts.
+13. **`test_edge_significance.py`** — a Monte Carlo test of the skeptical null hypothesis
+    "the market's price was exactly the true probability, i.e. there's no real edge at all."
+    Simulates 20,000 parallel universes under that null using the actual bet sizes and
+    outcomes, and checks whether the real paper-trading P&L is statistically distinguishable
+    from ordinary variance — a real number to answer "is this working" instead of eyeballing
+    a win rate.
+14. **`analyze_edge_by_leadtime.py`** — breaks resolved paper trades down by lead time before
+    resolution and by the model's claimed edge size, to test the strategy's own thesis
+    (edge should be concentrated in longer-lead-time, higher-conviction trades) directly
+    against real outcomes, instead of assuming the price-only backtest still applies once a
+    specific model and threshold sit on top of it.
 
 ## Notable problems I caught
 
@@ -178,34 +195,92 @@ under the $30 cap), but it wasn't real diversification, just one view under two 
 and both lost together, exactly as a duplicated bet would. Fixed by capping sports (not
 weather, whose strike buckets are genuinely non-redundant) to one open position per event.
 
+**A silent ~48-hour outage the dashboard actively hid.** Five of the six cron jobs
+(everything except `build_dashboard.py`) stopped writing any new data for about two days,
+almost certainly a transient network hiccup for cron-launched (non-interactive) processes —
+every dead job makes outbound HTTP calls, the one survivor doesn't. The dangerous part wasn't
+the outage itself, it was that `build_dashboard.py` kept firing every 5 minutes the whole
+time, re-rendering the exact same frozen numbers, so the dashboard looked perfectly alive
+while everything feeding it was dead. Nothing would have surfaced this short of manually
+diffing file timestamps. Fixed by having the dashboard check each cron's log-file mtime
+against its expected cadence and show a warning banner if any job's gone quiet — a first,
+partial step toward real monitoring (still passive; it only helps if someone looks).
+
+**A city that was never actually being logged.** While building `calibrate_sigma.py`,
+found `log_forecast.py` was still hardcoded to NYC's single NWS grid point — a leftover from
+before the 6-city expansion. `forecast_log.csv` had zero forecast history for the other 5
+cities despite `weather_fair_value.py` actively trading all 6. Fixed to loop over the shared
+`CITIES` config like the rest of the weather code already does, and generalized
+`fetch_actual_temp.py` to take a station + timezone instead of assuming NYC/Eastern (Denver
+and LA aren't Eastern time, which matters for correctly assigning a forecast to "today" vs.
+"tomorrow"). First calibration read, NYC only (the other 5 cities are still building
+history): measured forecast error (2.0–2.8°F RMSE, 12–120h out) came in well under the
+5.4°F the model currently assumes, plus a consistent ~2°F warm bias — worth a second look
+once there's more than one city and one week of data, not yet acted on.
+
+**Tested the strategy's own thesis against the paper-trading data, not just the price
+backtest.** The whole strategy rests on `backtest_calibration.py`'s original finding: Kalshi's
+price is weakly predictive early and catches up fast, so real edge should be concentrated in
+trades placed with more lead time before resolution, and the model's biggest claimed edges
+should perform at least as well as its smaller ones. Built `analyze_edge_by_leadtime.py` to
+check both directly against the 68 resolved paper trades, rather than assuming the price-only
+backtest still holds once a specific model and trading threshold sit on top of it. Neither
+pattern held up: ROI didn't improve with more lead time (the 24-72h bucket was the worst of
+the three, not the best), and the trades where the model claimed the *biggest* edge (0.15+)
+had the worst ROI of any bucket (-52.5%) and underperformed their own implied win rate. Too
+small a sample to say the thesis is wrong, but it isn't confirming it either — and the
+edge-size result specifically suggests the model's largest "edges" may disproportionately be
+its own errors (bad forecast, stale odds line) rather than real mispricing, which is worth
+investigating (e.g. whether they cluster in illiquid markets, the same failure mode as the
+Miami sigma bug) before trusting them more.
+
 ## Current status
 
-- Data collection running continuously (market prices + weather forecasts).
-- First fair-value signal (weather) built and working.
-- Forecast uncertainty currently uses NWS's published national accuracy stats as a
-  starting estimate; collecting forecast-vs-actual data to replace it with a real
-  measured value specific to this pipeline.
-- First real backtest (price calibration) done — see finding above. Confirms the strategy
-  direction; doesn't yet test the weather fair-value model itself (still waiting on
-  forecast-accuracy data).
-- Second fair-value signal (MLB, via real sportsbook odds) built and logging hourly.
-- Weather now covers all 3 NYC strike types (above/below/range), not just "above X", and 6
-  cities total instead of just NYC.
-- Paper trading is live: both signals feed into it, hypothetical trades logged when edge
-  clears the threshold, sized by edge magnitude with a per-event exposure cap. 21 open
-  positions, first resolutions expected the night of Aug 15.
-- Live dashboard (`dashboard.html`) shows current positions and P&L, regenerating every 5
-  minutes.
+- Data collection running continuously (market prices + weather forecasts, all 6 cities).
+- Both fair-value signals (weather + MLB sportsbook odds) built, logging hourly/every 15
+  minutes, and feeding paper trading.
+- Paper trading track record as of 2026-08-17: **68 resolved trades (60 weather, 8 sports),
+  win rate 31%, total P&L -$215.19.** Not the headline number it looks like on its own —
+  see below.
+- **Ran an actual test of whether that P&L means anything** (`test_edge_significance.py`):
+  simulated the same bet sizes 20,000 times under the null hypothesis "the market was
+  exactly fair, no real edge exists." The real P&L landed at p≈0.18 — not statistically
+  distinguishable from ordinary variance. That's not proof the strategy doesn't work (the
+  sample is still small), but it means **no edge is proven yet either** — the honest read is
+  "not enough evidence," not "profitable" or "broken."
+- Weather sigma (forecast uncertainty) calibration started: real measured forecast error is
+  running tighter than the model's current assumption, for NYC over about a week of data.
+  Not yet acted on — too little data, one city, to rule out it being this week's particular
+  weather pattern rather than a real, generalizable gap.
+- Sports edge appears structurally limited by data timing: the free odds-API tier only
+  returns near-term games, and the original calibration backtest showed Kalshi's own price
+  is already well-calibrated by then — so the theoretical inefficiency (Kalshi is close to a
+  coin flip on sports a day out) may not be reachable with this data source. Deprioritized
+  further sports build effort pending a paid tier being worth it.
+- **Checked the strategy's own thesis against real outcomes** (`analyze_edge_by_leadtime.py`):
+  edge should concentrate in longer-lead-time and higher-conviction trades if the strategy is
+  working as designed. Neither pattern showed up yet — worth investigating (do the biggest
+  claimed edges cluster in illiquid markets, like the earlier Miami sigma bug?) rather than
+  just waiting for more data to accumulate passively.
+- Live dashboard (`dashboard.html`) shows current positions, P&L, and a staleness warning if
+  any collection job has gone quiet, regenerating every 5 minutes.
+- **Not proceeding to live order execution (real money) until the significance test — or a
+  larger sample — shows a real, positive result.** That's the actual gate, not a date.
 
 ## Roadmap
 
-- [ ] Measure real forecast accuracy, calibrate the weather model
+- [x] Measure real forecast accuracy — `calibrate_sigma.py` built; NYC has ~1 week of data,
+      other 5 cities still accumulating. Not yet acted on (see Current status).
 - [x] First backtest (price calibration) — see above
 - [ ] Backtest the weather fair-value strategy itself against historical data
 - [x] Expand to sports (MLB) using the same external-data approach
-- [ ] See if a real sports edge shows up in the hourly logged data
+- [x] See if a real sports edge shows up in the hourly logged data — likely structurally
+      capped by free-tier data timing; see Current status
 - [x] Paper trading (simulate trades without real money)
-- [ ] Resolve paper trades against actual outcomes, see how the track record looks
+- [x] Resolve paper trades against actual outcomes, see how the track record looks — done,
+      and followed up with an actual statistical test rather than eyeballing the number
 - [x] Risk management (edge-weighted position sizing, per-event exposure caps)
-- [ ] Live order execution
+- [x] Basic monitoring — dashboard staleness banner (passive; no active alert yet)
+- [ ] Live order execution — gated on the significance test showing real, positive edge, not
+      on a timeline
 - [x] Dashboard (live-updating, via `build_dashboard.py`)
