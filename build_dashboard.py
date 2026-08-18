@@ -1,9 +1,42 @@
 import csv
+import os
 from datetime import datetime, timezone
 
 PAPER_TRADES_FILE = "paper_trades.csv"
 DASHBOARD_FILE = "dashboard.html"
 REFRESH_SECONDS = 60
+
+# Each cron job appends to its own log on every run regardless of whether it
+# had new data to write (e.g. resolve_paper_trades.py only rewrites its CSV
+# when something actually resolved, so the CSV's mtime alone can look "stale"
+# even when the job is running fine -- the log file is the reliable heartbeat).
+# (log_file, expected_interval_minutes, label). Threshold is checked at 2.5x
+# the interval to allow for a slow API call or a missed tick without false-alarming.
+STALENESS_CHECKS = [
+    ("collect_data.log", 15, "Market data collection"),
+    ("log_forecast.log", 60, "Weather forecast logging"),
+    ("log_sports_edge.log", 60, "Sports edge logging"),
+    ("log_weather_edge.log", 15, "Weather edge logging"),
+    ("resolve_paper_trades.log", 30, "Paper trade resolution"),
+]
+STALENESS_MULTIPLIER = 2.5
+
+
+def check_staleness():
+    """Returns a list of (label, minutes_since_last_run) for any cron whose
+    log hasn't been touched recently -- found this class of bug the hard way
+    when 5 of 6 crons died silently for ~48h while this dashboard kept
+    rebuilding and showing the same frozen numbers as if nothing was wrong."""
+    stale = []
+    now = datetime.now(timezone.utc).timestamp()
+    for log_file, interval_min, label in STALENESS_CHECKS:
+        if not os.path.isfile(log_file):
+            stale.append((label, None))  # never ran at all
+            continue
+        age_min = (now - os.path.getmtime(log_file)) / 60
+        if age_min > interval_min * STALENESS_MULTIPLIER:
+            stale.append((label, age_min))
+    return stale
 
 
 def load_trades():
@@ -65,8 +98,23 @@ def row_html(t, resolved=False):
     </tr>"""
 
 
+def stale_banner_html(stale):
+    if not stale:
+        return ""
+    items = "".join(
+        f"<li><b>{label}</b> — {'never ran' if mins is None else f'{mins:.0f} min ago'}</li>"
+        for label, mins in stale
+    )
+    return f"""
+  <div class="stale-banner">
+    ⚠ Data may be stale — the following jobs haven't logged a run recently:
+    <ul>{items}</ul>
+  </div>"""
+
+
 def build():
     trades = load_trades()
+    stale = check_staleness()
     open_trades = [t for t in trades if t["status"] == "open"]
     resolved = [t for t in trades if t["status"] == "resolved"]
 
@@ -122,11 +170,17 @@ def build():
   .badge {{ padding: 2px 8px; border-radius: 6px; font-size: 0.72rem; font-weight: 600; }}
   .empty {{ text-align: center; color: var(--dim); padding: 24px; }}
   .wrap {{ overflow-x: auto; }}
+  .stale-banner {{
+    background: #f59e0b22; border: 1px solid #f59e0b; color: var(--text);
+    border-radius: 10px; padding: 12px 16px; margin-bottom: 24px; font-size: 0.85rem;
+  }}
+  .stale-banner ul {{ margin: 6px 0 0; padding-left: 20px; }}
 </style>
 </head>
 <body>
   <h1>Kalshi Bot — Paper Trading</h1>
   <div class="subtitle">Auto-refreshes every {REFRESH_SECONDS}s · Last built {now}</div>
+  {stale_banner_html(stale)}
 
   <div class="cards">
     <div class="card"><div class="label">Open Positions</div><div class="value">{len(open_trades)}</div></div>
@@ -157,9 +211,12 @@ def build():
     with open(DASHBOARD_FILE, "w") as f:
         f.write(html)
 
-    return len(open_trades), len(resolved)
+    return len(open_trades), len(resolved), stale
 
 
 if __name__ == "__main__":
-    open_count, resolved_count = build()
+    open_count, resolved_count, stale = build()
     print(f"Built {DASHBOARD_FILE}: {open_count} open, {resolved_count} resolved")
+    if stale:
+        names = ", ".join(label for label, _ in stale)
+        print(f"STALE: {names}")
