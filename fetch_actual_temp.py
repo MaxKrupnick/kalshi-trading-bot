@@ -3,16 +3,17 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-STATION_URL = "https://api.weather.gov/stations/KNYC/observations"
-NYC_TZ = ZoneInfo("America/New_York")
+NYC_TZ = ZoneInfo("America/New_York")  # kept as the default/original behavior; each city uses its own tz below
 
 
 def celsius_to_fahrenheit(c):
     return c * 9 / 5 + 32
 
 
-def get_actual_high(target_date, max_retries=5):
-    """Actual recorded high (F) for target_date, a date in NYC local time.
+def get_actual_high(target_date, station="KNYC", tz=NYC_TZ, max_retries=5):
+    """Actual recorded high (F) for target_date, a date in the given
+    station's local time (defaults to NYC/KNYC, the original single-city
+    behavior).
 
     Uses raw station observations (max of hourly readings), which is a
     close proxy for NWS's official Daily Climatological Report high --
@@ -27,7 +28,8 @@ def get_actual_high(target_date, max_retries=5):
     (not just theoretical) gap vs. Kalshi's true settlement value. Worth
     revisiting if sigma calibration numbers look off later.
     """
-    start_local = datetime.combine(target_date, time.min, tzinfo=NYC_TZ)
+    station_url = f"https://api.weather.gov/stations/{station}/observations"
+    start_local = datetime.combine(target_date, time.min, tzinfo=tz)
     end_local = start_local + timedelta(days=1)
     params = {
         "start": start_local.astimezone(ZoneInfo("UTC")).isoformat(),
@@ -36,7 +38,7 @@ def get_actual_high(target_date, max_retries=5):
 
     for attempt in range(max_retries):
         response = requests.get(
-            STATION_URL, params=params,
+            station_url, params=params,
             headers={"User-Agent": "kalshi-trading-bot (personal project)"},
         )
         if response.status_code == 200:

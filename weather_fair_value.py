@@ -13,12 +13,12 @@ KALSHI_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 # https://api.weather.gov/stations/{station_id} -> https://api.weather.gov/points/{lat},{lon}.
 # NWS grid/station assignments essentially never change, so hardcoding is fine.
 CITIES = {
-    "NYC": {"series_ticker": "KXHIGHNY", "station": "KNYC", "office": "OKX", "grid_x": 34, "grid_y": 45},
-    "CHI": {"series_ticker": "KXHIGHCHI", "station": "KMDW", "office": "LOT", "grid_x": 72, "grid_y": 69},
-    "MIA": {"series_ticker": "KXHIGHMIA", "station": "KMIA", "office": "MFL", "grid_x": 105, "grid_y": 51},
-    "DEN": {"series_ticker": "KXHIGHDEN", "station": "KDEN", "office": "BOU", "grid_x": 75, "grid_y": 66},
-    "LAX": {"series_ticker": "KXHIGHLAX", "station": "KLAX", "office": "LOX", "grid_x": 149, "grid_y": 41},
-    "BOS": {"series_ticker": "KXHIGHTBOS", "station": "KBOS", "office": "BOX", "grid_x": 73, "grid_y": 101},
+    "NYC": {"series_ticker": "KXHIGHNY", "station": "KNYC", "office": "OKX", "grid_x": 34, "grid_y": 45, "tz": "America/New_York"},
+    "CHI": {"series_ticker": "KXHIGHCHI", "station": "KMDW", "office": "LOT", "grid_x": 72, "grid_y": 69, "tz": "America/Chicago"},
+    "MIA": {"series_ticker": "KXHIGHMIA", "station": "KMIA", "office": "MFL", "grid_x": 105, "grid_y": 51, "tz": "America/New_York"},
+    "DEN": {"series_ticker": "KXHIGHDEN", "station": "KDEN", "office": "BOU", "grid_x": 75, "grid_y": 66, "tz": "America/Denver"},
+    "LAX": {"series_ticker": "KXHIGHLAX", "station": "KLAX", "office": "LOX", "grid_x": 149, "grid_y": 41, "tz": "America/Los_Angeles"},
+    "BOS": {"series_ticker": "KXHIGHTBOS", "station": "KBOS", "office": "BOX", "grid_x": 73, "grid_y": 101, "tz": "America/New_York"},
 }
 
 # Forecast-error std dev (degrees F), by lead time. The 48h/120h anchors are

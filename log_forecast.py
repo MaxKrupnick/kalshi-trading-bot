@@ -4,48 +4,46 @@ from datetime import datetime, timezone
 
 import requests
 
-NWS_FORECAST_URL = "https://api.weather.gov/gridpoints/OKX/34,45/forecast"
+from weather_fair_value import CITIES
+
 LOG_FILE = "forecast_log.csv"
+FIELDNAMES = ["logged_at", "city", "forecast_issued_at", "target_date", "period_name", "forecast_high_f"]
 
 
-def get_forecast():
-    response = requests.get(
-        NWS_FORECAST_URL,
-        headers={"User-Agent": "kalshi-trading-bot (personal project)"},
-    )
+def get_forecast_properties(city):
+    c = CITIES[city]
+    url = f"https://api.weather.gov/gridpoints/{c['office']}/{c['grid_x']},{c['grid_y']}/forecast"
+    response = requests.get(url, headers={"User-Agent": "kalshi-trading-bot (personal project)"})
     response.raise_for_status()
     return response.json()["properties"]
 
 
-def log_daytime_periods(properties):
-    logged_at = datetime.now(timezone.utc).isoformat()
+def log_daytime_periods(writer, city, properties, logged_at):
     forecast_issued_at = properties["updateTime"]
+    count = 0
+    for period in properties["periods"]:
+        if not period["isDaytime"]:
+            continue
+        target_date = datetime.fromisoformat(period["startTime"]).date().isoformat()
+        writer.writerow([
+            logged_at, city, forecast_issued_at, target_date,
+            period["name"], period["temperature"],
+        ])
+        count += 1
+    return count
+
+
+if __name__ == "__main__":
+    logged_at = datetime.now(timezone.utc).isoformat()
     file_exists = os.path.isfile(LOG_FILE)
+    total = 0
 
     with open(LOG_FILE, "a", newline="") as f:
         writer = csv.writer(f)
         if not file_exists:
-            writer.writerow([
-                "logged_at", "forecast_issued_at", "target_date",
-                "period_name", "forecast_high_f",
-            ])
-        count = 0
-        for period in properties["periods"]:
-            if not period["isDaytime"]:
-                continue
-            target_date = datetime.fromisoformat(period["startTime"]).date().isoformat()
-            writer.writerow([
-                logged_at,
-                forecast_issued_at,
-                target_date,
-                period["name"],
-                period["temperature"],
-            ])
-            count += 1
-        return count
+            writer.writerow(FIELDNAMES)
+        for city in CITIES:
+            properties = get_forecast_properties(city)
+            total += log_daytime_periods(writer, city, properties, logged_at)
 
-
-if __name__ == "__main__":
-    properties = get_forecast()
-    count = log_daytime_periods(properties)
-    print(f"Logged {count} daytime forecast periods to {LOG_FILE}")
+    print(f"Logged {total} daytime forecast periods across {len(CITIES)} cities to {LOG_FILE}")
