@@ -202,16 +202,26 @@ under the $30 cap), but it wasn't real diversification, just one view under two 
 and both lost together, exactly as a duplicated bet would. Fixed by capping sports (not
 weather, whose strike buckets are genuinely non-redundant) to one open position per event.
 
-**A silent ~48-hour outage the dashboard actively hid.** Five of the six cron jobs
-(everything except `build_dashboard.py`) stopped writing any new data for about two days,
-almost certainly a transient network hiccup for cron-launched (non-interactive) processes —
-every dead job makes outbound HTTP calls, the one survivor doesn't. The dangerous part wasn't
-the outage itself, it was that `build_dashboard.py` kept firing every 5 minutes the whole
-time, re-rendering the exact same frozen numbers, so the dashboard looked perfectly alive
-while everything feeding it was dead. Nothing would have surfaced this short of manually
-diffing file timestamps. Fixed by having the dashboard check each cron's log-file mtime
-against its expected cadence and show a warning banner if any job's gone quiet — a first,
-partial step toward real monitoring (still passive; it only helps if someone looks).
+**A silent ~48-hour outage, and a wrong diagnosis worth recording.** Five of the six cron jobs
+stopped writing new data for about two days. My first read was a transient network failure
+affecting cron-launched processes — every silent job made outbound HTTP calls, and the one
+that kept logging (`build_dashboard.py`) doesn't. That explanation fit the evidence I'd
+looked at, and it was wrong.
+
+The actual cause was mundane: the laptop was asleep or powered off (I was moving into
+college). macOS `cron` doesn't run missed jobs on wake, so the schedule just silently skipped.
+The tell I'd missed was a counting check I hadn't thought to do — `build_dashboard.log` had
+344 lines where continuous 5-minute operation over that window would have produced ~1,126, and
+`kern.boottime` showed a reboot mid-outage. The dashboard job hadn't survived the outage at
+all; it had just run a few times on brief wakes, which was enough to make its log look current
+while the slower-cadence jobs never happened to catch a boundary.
+
+Worth keeping in the writeup rather than quietly editing away: a plausible mechanism that
+explains the pattern isn't the same as the cause, and "which processes are still alive" was a
+much weaker signal than "how many times did each one actually run." The monitoring fix that
+came out of it stands either way — the dashboard now checks each cron's log-file mtime against
+its expected cadence and shows a warning banner if any job goes quiet, which surfaces a
+sleeping laptop exactly as well as it would have surfaced the network failure I'd assumed.
 
 **A city that was never actually being logged.** While building `calibrate_sigma.py`,
 found `log_forecast.py` was still hardcoded to NYC's single NWS grid point — a leftover from
