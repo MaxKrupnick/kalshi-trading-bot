@@ -82,6 +82,10 @@ Needs a Kalshi API key (`.env`: `KALSHI_API_KEY_ID`) and, for the sports side, a
 15. **`analyze_edge_vs_liquidity.py`** — checks whether the model's biggest claimed edges
     cluster in illiquid (wide bid/ask spread) markets, reconstructing real spread at trade
     time from `market_data.csv` where available and real historical candlesticks otherwise.
+16. **`momentum_signal.py`** — a deliberate **control arm**: trades Kalshi's own recent price
+    movement (extrapolating partial continuation of a 6-hour move) instead of external data.
+    Runs as a third independent paper-trading strategy alongside weather and sports, so the
+    fair-value approach is measured against a baseline rather than only against zero.
 
 ## Notable problems I caught
 
@@ -261,6 +265,27 @@ all of the negative P&L (-42% ROI), while the handful of wider-spread trades wer
 profitable (too few, n=6 and n=2, to trust on their own). Rules out "it's just illiquid
 markets" as a clean explanation — most of the losses happened in reasonably liquid ones.
 
+**Testing the project's own core premise instead of assuming it.** This README has argued
+from the start that price momentum is a weak strategy and real edge has to come from
+independent external data. That was reasoned qualitatively and never measured — and with four
+separate diagnostics unable to find edge in the fair-value arms, it stopped being safe to keep
+assuming. So momentum now runs as a real third paper-trading arm, tracked separately. It costs
+nothing extra to run (reads only the price data already being collected — no new API or key),
+and it makes the result interpretable either way: if momentum also loses, that's evidence
+these markets are simply hard rather than that the fair-value model is uniquely broken; if
+momentum does *better*, the project's founding premise needs revisiting. Comparing against a
+baseline beats comparing against zero.
+
+Wiring it in surfaced a design problem worth fixing carefully: `paper_trade.py` tracked open
+positions, per-event exposure, and duplicate-event checks globally, not per strategy. One arm
+could consume another's exposure budget or block it from a ticker entirely — which would
+contaminate a comparison between strategies rather than manage real risk. Since no capital is
+at stake in paper trading, that state is now keyed per strategy (a single shared cap only
+starts making sense once real money is involved). Also generalized the both-sides-of-one-game
+duplicate check from `source == "sports"` to a property of the *market*, since momentum trades
+those same game markets and would otherwise have hit the exact same redundancy bug the sports
+arm already had fixed.
+
 ## Current status
 
 - Data collection running continuously (market prices + weather forecasts, all 6 cities).
@@ -292,8 +317,12 @@ markets" as a clean explanation — most of the losses happened in reasonably li
   edges do have wider average spread), but it doesn't explain the P&L — most losses happened
   in liquid, tight-spread markets. Rules out the easy explanation; doesn't hand over the real
   one yet.
-- Live dashboard (`dashboard.html`) shows current positions, P&L, and a staleness warning if
-  any collection job has gone quiet, regenerating every 5 minutes.
+- **Momentum control arm now running** as a third strategy (started 2026-08-17), tracked
+  separately from the two fair-value arms so they can be compared directly. Too new for
+  results; first resolutions expected within a day or two.
+- Live dashboard (`dashboard.html`) shows current positions, P&L, a per-strategy comparison
+  table, and a staleness warning if any collection job has gone quiet, regenerating every 5
+  minutes.
 - **Not proceeding to live order execution (real money) until the significance test — or a
   larger sample — shows a real, positive result.** That's the actual gate, not a date.
 
@@ -311,6 +340,9 @@ markets" as a clean explanation — most of the losses happened in reasonably li
       and followed up with an actual statistical test rather than eyeballing the number
 - [x] Risk management (edge-weighted position sizing, per-event exposure caps)
 - [x] Basic monitoring — dashboard staleness banner (passive; no active alert yet)
+- [x] Run a control strategy (price momentum) in parallel, to measure the fair-value approach
+      against a baseline instead of against zero
+- [ ] Compare the arms once momentum has enough resolved trades
 - [ ] Live order execution — gated on the significance test showing real, positive edge, not
       on a timeline
 - [x] Dashboard (live-updating, via `build_dashboard.py`)
