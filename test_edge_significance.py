@@ -86,8 +86,8 @@ if __name__ == "__main__":
           f"extreme by chance alone?\n")
 
     run_test("All sources", all_resolved)
-    run_test("Weather", load_resolved("weather"))
-    run_test("Sports", load_resolved("sports"))
+    for source in sorted({r["source"] for r in all_resolved}):
+        run_test(source.capitalize(), load_resolved(source))
 
     print("Caveat: with only a few dozen resolved trades this test has low statistical power -- "
           "a p-value here that isn't significant does NOT confirm there's no edge, only that "

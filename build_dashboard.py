@@ -18,6 +18,7 @@ STALENESS_CHECKS = [
     ("log_sports_edge.log", 60, "Sports edge logging"),
     ("log_weather_edge.log", 15, "Weather edge logging"),
     ("resolve_paper_trades.log", 30, "Paper trade resolution"),
+    ("momentum_trade.log", 15, "Momentum paper trading"),
 ]
 STALENESS_MULTIPLIER = 2.5
 
@@ -51,8 +52,11 @@ def fmt_money(value):
     return f"${value:+.2f}" if value >= 0 else f"-${abs(value):.2f}"
 
 
+SOURCE_COLORS = {"weather": "#3b82f6", "sports": "#f59e0b", "momentum": "#a855f7"}
+
+
 def source_badge(source):
-    color = "#3b82f6" if source == "weather" else "#f59e0b"
+    color = SOURCE_COLORS.get(source, "#8b96a3")
     return f'<span class="badge" style="background:{color}22;color:{color}">{source}</span>'
 
 
@@ -110,6 +114,37 @@ def stale_banner_html(stale):
     ⚠ Data may be stale — the following jobs haven't logged a run recently:
     <ul>{items}</ul>
   </div>"""
+
+
+def by_strategy_html(resolved, open_trades):
+    """Per-strategy breakdown -- the whole point of running momentum as a
+    control arm alongside the fair-value strategies is comparing them, so the
+    comparison belongs on the dashboard rather than only in an analysis
+    script run by hand."""
+    sources = sorted({t["source"] for t in resolved} | {t["source"] for t in open_trades})
+    rows = []
+    for source in sources:
+        res = [t for t in resolved if t["source"] == source]
+        opn = [t for t in open_trades if t["source"] == source]
+        if res:
+            wins = sum(1 for t in res if t["side"] == t["result"])
+            pnl = sum(float(t["pnl"]) for t in res)
+            risked = sum(float(t["position_size_dollars"]) for t in res)
+            roi = pnl / risked * 100 if risked else 0
+            record = f"{wins}/{len(res)} ({wins / len(res):.0%})"
+            pnl_cell = f'<td class="num {"pos" if pnl >= 0 else "neg"}">{fmt_money(pnl)}</td>'
+            roi_cell = f'<td class="num {"pos" if roi >= 0 else "neg"}">{roi:+.1f}%</td>'
+        else:
+            record, pnl_cell, roi_cell = "—", '<td class="num dim">—</td>', '<td class="num dim">—</td>'
+        rows.append(f"""<tr>
+            <td>{source_badge(source)}</td>
+            <td class="num">{len(opn)}</td>
+            <td class="num">{len(res)}</td>
+            <td class="num">{record}</td>
+            {pnl_cell}
+            {roi_cell}
+        </tr>""")
+    return "\n".join(rows) or '<tr><td colspan="6" class="empty">No trades yet</td></tr>'
 
 
 def build():
@@ -187,6 +222,14 @@ def build():
     <div class="card"><div class="label">Resolved</div><div class="value">{len(resolved)}</div></div>
     <div class="card"><div class="label">Win Rate</div><div class="value">{win_rate}</div></div>
     <div class="card"><div class="label">Total P&amp;L</div><div class="value {'pos' if total_pnl >= 0 else 'neg'}">{fmt_money(total_pnl)}</div></div>
+  </div>
+
+  <h2>By Strategy</h2>
+  <div class="wrap">
+  <table>
+    <tr><th>Strategy</th><th class="num">Open</th><th class="num">Resolved</th><th class="num">Win rate</th><th class="num">P&amp;L</th><th class="num">ROI</th></tr>
+    {by_strategy_html(resolved, open_trades)}
+  </table>
   </div>
 
   <h2>Open Positions</h2>

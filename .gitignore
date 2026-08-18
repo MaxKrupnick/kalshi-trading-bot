@@ -19,6 +19,7 @@ log_weather_edge.log
 dashboard.html
 build_dashboard.log
 liquidity_snapshot_cache.csv
+momentum_trade.log
 
 # python
 .venv/

@@ -5,9 +5,18 @@ from datetime import datetime, timezone
 
 import weather_fair_value
 import sports_fair_value
+import momentum_signal
 
 PAPER_TRADES_FILE = "paper_trades.csv"
 EDGE_THRESHOLD = 0.05  # minimum edge (vs actual ask price, not mid) to "trade"
+
+# Series whose contracts are a 2-outcome market (one game, two teams), where
+# "team A yes" and "team B no" are the same directional bet under different
+# tickers. Keyed off the series rather than the trading source, because more
+# than one strategy can trade the same underlying market -- the momentum arm
+# trades these too, and hit the identical redundancy the sports fair-value
+# arm did before it was fixed.
+TWO_OUTCOME_SERIES = ("KXMLBGAME", "KXNFLGAME", "KXWNBAGAME")
 
 # Edge-weighted position sizing: $5 at the minimum qualifying edge, scaling
 # linearly up to a $20 cap so one high-conviction trade can't dominate.
@@ -71,6 +80,20 @@ def get_sports_opportunities():
     yield from sports_comparisons_to_opportunities(comparisons)
 
 
+def get_momentum_opportunities():
+    """The control arm -- reads only already-collected market_data.csv, so
+    it costs no API calls and can run as often as the collector does."""
+    for c in momentum_signal.build_comparisons():
+        yield {
+            "source": "momentum",
+            "ticker": c["ticker"],
+            "description": c["description"],
+            "model_prob": c["model_prob"],
+            "yes_bid": c["yes_bid"],
+            "yes_ask": c["yes_ask"],
+        }
+
+
 def best_side(opp):
     """Compare the model's probability to the actual price you'd pay (the
     ask), not the mid -- mid is fine for exploratory display, but a real
@@ -102,25 +125,39 @@ def position_size_for_edge(edge):
     return round(min(size, MAX_POSITION_DOLLARS), 2)
 
 
+def is_two_outcome(ticker):
+    return ticker.startswith(TWO_OUTCOME_SERIES)
+
+
 def load_open_state():
-    """Returns (set of tickers with an open position, dict of event_key ->
-    dollars already committed to that event, set of event_keys that already
-    have an open *sports* position)."""
-    open_tickers = set()
+    """All state is keyed by (source, ...) so each strategy is tracked
+    independently. That isolation is deliberate: these strategies are being
+    compared against each other, so one arm consuming another's exposure
+    budget -- or blocking it from a ticker it independently wants -- would
+    contaminate the comparison rather than just managing risk. No real
+    capital is at stake in paper trading, so there's no reason to share a
+    budget across arms; a single combined cap would only make sense once
+    real money is on the line.
+
+    Returns (set of (source, ticker) with an open position, dict of
+    (source, event_key) -> dollars committed, set of (source, event_key)
+    that already have an open position in a 2-outcome game market)."""
+    open_positions = set()
     exposure_by_event = defaultdict(float)
-    sports_events_taken = set()
+    game_events_taken = set()
     if not os.path.isfile(PAPER_TRADES_FILE):
-        return open_tickers, exposure_by_event, sports_events_taken
+        return open_positions, exposure_by_event, game_events_taken
 
     with open(PAPER_TRADES_FILE, newline="") as f:
         for row in csv.DictReader(f):
             if row["status"] == "open":
-                open_tickers.add(row["ticker"])
-                key = event_key(row["ticker"])
+                source = row["source"]
+                open_positions.add((source, row["ticker"]))
+                key = (source, event_key(row["ticker"]))
                 exposure_by_event[key] += float(row["position_size_dollars"])
-                if row["source"] == "sports":
-                    sports_events_taken.add(key)
-    return open_tickers, exposure_by_event, sports_events_taken
+                if is_two_outcome(row["ticker"]):
+                    game_events_taken.add(key)
+    return open_positions, exposure_by_event, game_events_taken
 
 
 def log_trade(writer, opp, side, entry_price, edge, position_size):
@@ -142,7 +179,7 @@ def log_trade(writer, opp, side, entry_price, edge, position_size):
 
 
 def evaluate_and_log(opportunity_iterables):
-    already_open, exposure_by_event, sports_events_taken = load_open_state()
+    open_positions, exposure_by_event, game_events_taken = load_open_state()
     file_exists = os.path.isfile(PAPER_TRADES_FILE)
     new_trades = 0
 
@@ -152,8 +189,8 @@ def evaluate_and_log(opportunity_iterables):
     candidates = []
     for opportunities in opportunity_iterables:
         for opp in opportunities:
-            if opp["ticker"] in already_open:
-                continue  # already have an open paper position here
+            if (opp["source"], opp["ticker"]) in open_positions:
+                continue  # this strategy already has an open position here
             if opp["yes_bid"] is None or opp["yes_ask"] is None:
                 continue
 
@@ -174,16 +211,16 @@ def evaluate_and_log(opportunity_iterables):
             ])
 
         for edge, opp, side, entry_price in candidates:
-            key = event_key(opp["ticker"])
+            key = (opp["source"], event_key(opp["ticker"]))
 
             # A 2-team moneyline only has 2 possible outcomes, so "team A
             # yes" and "team B no" are the same directional bet, not
             # diversification -- taking both just doubles one view under two
             # ticker labels. Weather doesn't have this problem: its multiple
             # strike buckets are genuinely different, non-redundant views on
-            # the distribution, so only sports is restricted to one position
-            # per event.
-            if opp["source"] == "sports" and key in sports_events_taken:
+            # the distribution, so only game markets are restricted to one
+            # position per event.
+            if is_two_outcome(opp["ticker"]) and key in game_events_taken:
                 continue
 
             remaining_budget = MAX_EXPOSURE_PER_EVENT_DOLLARS - exposure_by_event[key]
@@ -193,10 +230,10 @@ def evaluate_and_log(opportunity_iterables):
             position_size = min(position_size_for_edge(edge), remaining_budget)
 
             log_trade(writer, opp, side, entry_price, edge, position_size)
-            already_open.add(opp["ticker"])
+            open_positions.add((opp["source"], opp["ticker"]))
             exposure_by_event[key] += position_size
-            if opp["source"] == "sports":
-                sports_events_taken.add(key)
+            if is_two_outcome(opp["ticker"]):
+                game_events_taken.add(key)
             new_trades += 1
             print(f"  OPENED {opp['source']}/{side}: {opp['description']} @ {entry_price:.2f} "
                   f"(edge {edge:+.2f}, size ${position_size:.2f})")
@@ -209,9 +246,18 @@ def run_weather_only():
     return evaluate_and_log([get_weather_opportunities()])
 
 
+def run_momentum_only():
+    """Control arm -- reads only local market_data.csv, costs no API calls."""
+    return evaluate_and_log([get_momentum_opportunities()])
+
+
 def run_all():
     """Standalone/manual use only -- costs one odds-API request for sports."""
-    return evaluate_and_log([get_weather_opportunities(), get_sports_opportunities()])
+    return evaluate_and_log([
+        get_weather_opportunities(),
+        get_sports_opportunities(),
+        get_momentum_opportunities(),
+    ])
 
 
 if __name__ == "__main__":
@@ -219,6 +265,8 @@ if __name__ == "__main__":
 
     if "--weather-only" in sys.argv:
         count = run_weather_only()
+    elif "--momentum-only" in sys.argv:
+        count = run_momentum_only()
     else:
         count = run_all()
     print(f"\n{count} new paper trade(s) opened, logged to {PAPER_TRADES_FILE}")
