@@ -79,6 +79,9 @@ Needs a Kalshi API key (`.env`: `KALSHI_API_KEY_ID`) and, for the sports side, a
     (edge should be concentrated in longer-lead-time, higher-conviction trades) directly
     against real outcomes, instead of assuming the price-only backtest still applies once a
     specific model and threshold sit on top of it.
+15. **`analyze_edge_vs_liquidity.py`** — checks whether the model's biggest claimed edges
+    cluster in illiquid (wide bid/ask spread) markets, reconstructing real spread at trade
+    time from `market_data.csv` where available and real historical candlesticks otherwise.
 
 ## Notable problems I caught
 
@@ -234,6 +237,30 @@ its own errors (bad forecast, stale odds line) rather than real mispricing, whic
 investigating (e.g. whether they cluster in illiquid markets, the same failure mode as the
 Miami sigma bug) before trusting them more.
 
+**A third city-list drift, this time in the price collector.** Building the liquidity check
+below meant matching paper trades to real bid/ask spreads in `market_data.csv` — and only
+16 of 68 resolved trades matched at all. Traced it to `collect_data.py`'s `SERIES_TO_TRACK`,
+which had the exact same problem as `log_forecast.py` earlier this session: it only ever
+listed `KXHIGHNY`, never updated for the other 5 cities. Fixed the immediate gap, and this
+time fixed the *actual* root cause instead of just the symptom — the city list had been
+copy-pasted into three separate places (`weather_fair_value.py`, `log_forecast.py`,
+`collect_data.py`) and only the first one reliably got updated when a city was added.
+`collect_data.py` now derives its weather series from `weather_fair_value.CITIES` directly,
+so there's only one list left to maintain.
+
+**Checking whether the model's biggest "edges" are just noise in thin markets.** Following
+up on the lead-time/edge-size finding above: does the model's claimed edge size correlate
+with how illiquid the market actually was, and does that illiquidity cost real ROI? Since
+most already-resolved trades predate the `collect_data.py` fix, `analyze_edge_vs_liquidity.py`
+falls back to fetching real historical candlesticks per-ticker for anything not in
+`market_data.csv` (same API `backfill_prices.py` already uses, just targeted at one market
+instead of a whole series, cached locally). Result: the biggest-edge bucket (0.15+) does have
+the widest average spread (0.061 vs. 0.013–0.028 for the other two buckets) — partial support.
+But spread doesn't explain the P&L: the *tight*-spread bucket holds 60 of the 68 trades and
+all of the negative P&L (-42% ROI), while the handful of wider-spread trades were actually
+profitable (too few, n=6 and n=2, to trust on their own). Rules out "it's just illiquid
+markets" as a clean explanation — most of the losses happened in reasonably liquid ones.
+
 ## Current status
 
 - Data collection running continuously (market prices + weather forecasts, all 6 cities).
@@ -259,9 +286,12 @@ Miami sigma bug) before trusting them more.
   further sports build effort pending a paid tier being worth it.
 - **Checked the strategy's own thesis against real outcomes** (`analyze_edge_by_leadtime.py`):
   edge should concentrate in longer-lead-time and higher-conviction trades if the strategy is
-  working as designed. Neither pattern showed up yet — worth investigating (do the biggest
-  claimed edges cluster in illiquid markets, like the earlier Miami sigma bug?) rather than
-  just waiting for more data to accumulate passively.
+  working as designed. Neither pattern showed up yet.
+- **Followed up by checking whether big edges are just illiquid-market noise**
+  (`analyze_edge_vs_liquidity.py`, like the earlier Miami sigma bug): partial support (biggest
+  edges do have wider average spread), but it doesn't explain the P&L — most losses happened
+  in liquid, tight-spread markets. Rules out the easy explanation; doesn't hand over the real
+  one yet.
 - Live dashboard (`dashboard.html`) shows current positions, P&L, and a staleness warning if
   any collection job has gone quiet, regenerating every 5 minutes.
 - **Not proceeding to live order execution (real money) until the significance test — or a
