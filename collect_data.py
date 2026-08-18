@@ -3,12 +3,18 @@ import csv
 import os
 from datetime import datetime, timezone
 
+from weather_fair_value import CITIES as WEATHER_CITIES
+
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 CSV_FILE = "market_data.csv"
 
-# A handful of well-known, actively traded series to track
-SERIES_TO_TRACK = [
-    "KXHIGHNY",     # Highest temperature in NYC today
+# Weather series are derived from weather_fair_value.CITIES instead of listed
+# here separately -- this exact list drifting out of sync with CITIES (only
+# ever tracking KXHIGHNY here, missing the other 5 cities added 2026-08-14)
+# was a real bug found 2026-08-17, the same class as log_forecast.py's
+# NYC-only gap found the same day. Deriving it means adding a city in one
+# place (CITIES) is enough; it can't drift out of sync with this list again.
+SERIES_TO_TRACK = [c["series_ticker"] for c in WEATHER_CITIES.values()] + [
     "KXFEDHIKE",    # Next Fed rate hike
     "KXCPI",        # CPI / inflation
     "KXBTCMAX150",  # Will Bitcoin hit $150k
