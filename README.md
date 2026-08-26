@@ -5,6 +5,11 @@ first data science / software project. Goal: combine independent external data s
 (weather forecasts, sports odds, economic data) with Kalshi's live market prices to find
 mispriced markets — rather than just guessing from price movement alone.
 
+**The headline result is a negative one, and it's the part of this project I'd point at
+first.** I built the strategy, ran it on paper for two weeks, and then built the test that
+could prove it wrong — and it did. Details in [The founding assumption, tested](#the-founding-assumption-tested).
+No real money has ever been at risk.
+
 ## Why this approach
 
 Kalshi's price *is* the market's implied probability. Trading on Kalshi's own price
@@ -15,6 +20,60 @@ estimate** than the market, for markets where a good external predictor exists.
 **Example:** NYC's Central Park high temperature. NWS publishes a public forecast. If NWS
 forecasts an 80% chance of exceeding a strike price but Kalshi is only pricing it at 40%,
 that gap is the edge.
+
+> **Status of that premise: tested, and not supported for weather.** The argument above is
+> reasonable, and it's why I built the thing. It is also just an argument. Measured against
+> real outcomes, the NWS-derived model forecasts these markets *about as well as Kalshi's
+> price does* — not better. See the section below.
+
+## The founding assumption, tested
+
+Every diagnostic I'd built asked "did the trades make money." That question is downstream
+of a more basic one I had never tested directly: **does the model actually know something
+the market doesn't?** If it doesn't, then every "edge" the screen finds is noise, and
+trading noise loses the bid/ask spread by construction — no bug required.
+
+So I scored both forecasts against the same real outcomes, over **all 5,376 logged
+comparisons** — not just the ~200 that cleared the edge threshold and became trades.
+Scoring only the traded ones would select on the model's own opinion, which is exactly the
+bias under investigation.
+
+| Forecaster | Brier score (lower is better) |
+|---|---|
+| My NWS-derived model | 0.0891 |
+| Kalshi's market price | 0.0881 |
+
+95% bootstrap CI on the difference: **[−0.0020, +0.0042]** — straddles zero.
+
+**The model has no measurable information advantage over the market.** Not worse. Not
+better. Roughly the same information, which means there is nothing to trade on.
+
+That single result explains what four earlier diagnostics couldn't:
+
+- **Adverse selection.** On the trades the model *chose* to take, the market's Brier (0.146)
+  beats the model's (0.177). The edge threshold selects precisely for the cases where the
+  model is most wrong — a screen for model error, not for mispricing.
+- **Uniform overconfidence.** Broken out by decile, the model's probability exceeded the
+  realized outcome rate in **all ten buckets** on traded positions (it said 0.9–1.0 where
+  reality was 0.69; said 0.1–0.2 where reality was 0.02).
+- **Spread drag.** Paying the ask instead of the mid cost $137 — 24% of the weather arm's
+  loss. Structural, paid on every trade, and exactly what a zero-edge strategy cannot afford.
+
+**The obvious fix would not have worked, and I checked before making it.**
+`calibrate_sigma.py` showed the model's assumed forecast uncertainty was far too wide
+(measured RMSE ~1.9–3.4 °F against a hand-set 2.0–7.2 °F curve), which made "recalibrate
+sigma" the clear next move. Before editing constants that every future trade depends on, I
+replayed all 207 resolved weather trades with the measured values (`simulate_sigma_fix.py`):
+**−$545 → −$395.** Better, still deeply negative. Too-wide sigma was a contributing cause,
+not the explanation — and no amount of tuning a parameter creates an information advantage
+that isn't there.
+
+**What I'd claim from this:** not a profitable bot. A pipeline that collects real data
+continuously, a strategy implemented faithfully, and — the part that matters — a
+falsifiable test of my own premise that I built, ran, and believed when it came back
+negative. The measurement infrastructure is the durable artifact here; it would have caught
+this on any strategy, and it's what tells me the momentum arm is worth a closer look while
+the weather arm isn't.
 
 ## Setup
 
@@ -86,6 +145,15 @@ Needs a Kalshi API key (`.env`: `KALSHI_API_KEY_ID`) and, for the sports side, a
     movement (extrapolating partial continuation of a 6-hour move) instead of external data.
     Runs as a third independent paper-trading strategy alongside weather and sports, so the
     fair-value approach is measured against a baseline rather than only against zero.
+17. **`analyze_model_vs_market.py`** — the test that decided the project: scores my model and
+    Kalshi's price against the *same* real outcomes with a Brier score, across every logged
+    comparison rather than only the ones that became trades, with a bootstrap CI on the
+    difference. Asks "does the external data actually know more than the market," which is
+    the assumption everything else was built on top of. See the section above for the answer.
+18. **`simulate_sigma_fix.py`** — replays every resolved weather trade with the *measured*
+    forecast uncertainty from `calibrate_sigma.py`, to check whether recalibrating sigma would
+    actually have prevented the losses before editing the live model constants. It wouldn't
+    have. Written specifically to avoid "fix the obvious-looking thing and hope."
 
 ## Notable problems I caught
 
@@ -251,6 +319,12 @@ its own errors (bad forecast, stale odds line) rather than real mispricing, whic
 investigating (e.g. whether they cluster in illiquid markets, the same failure mode as the
 Miami sigma bug) before trusting them more.
 
+*Follow-up: the hunch in that last sentence turned out to be right about the mechanism and
+wrong about the cause. The biggest "edges" are indeed disproportionately model error — but
+not because of illiquidity (checked next, and ruled out). It's adverse selection: an edge
+screen run on a model with no real information advantage is a filter for that model's own
+mistakes. See [The founding assumption, tested](#the-founding-assumption-tested).*
+
 **A third city-list drift, this time in the price collector.** Building the liquidity check
 below meant matching paper trades to real bid/ask spreads in `market_data.csv` — and only
 16 of 68 resolved trades matched at all. Traced it to `collect_data.py`'s `SERIES_TO_TRACK`,
@@ -298,43 +372,75 @@ arm already had fixed.
 
 ## Current status
 
+*Updated 2026-08-26.*
+
 - Data collection running continuously (market prices + weather forecasts, all 6 cities).
 - Both fair-value signals (weather + MLB sportsbook odds) built, logging hourly/every 15
   minutes, and feeding paper trading.
-- Paper trading track record as of 2026-08-17: **68 resolved trades (60 weather, 8 sports),
-  win rate 31%, total P&L -$215.19.** Not the headline number it looks like on its own —
-  see below.
-- **Ran an actual test of whether that P&L means anything** (`test_edge_significance.py`):
-  simulated the same bet sizes 20,000 times under the null hypothesis "the market was
-  exactly fair, no real edge exists." The real P&L landed at p≈0.18 — not statistically
-  distinguishable from ordinary variance. That's not proof the strategy doesn't work (the
-  sample is still small), but it means **no edge is proven yet either** — the honest read is
-  "not enough evidence," not "profitable" or "broken."
-- Weather sigma (forecast uncertainty) calibration started: real measured forecast error is
-  running tighter than the model's current assumption, for NYC over about a week of data.
-  Not yet acted on — too little data, one city, to rule out it being this week's particular
-  weather pattern rather than a real, generalizable gap.
+- **Paper trading track record: 371 resolved trades, 45% win rate, total P&L −$735.46
+  (−21.8% ROI).** By strategy:
+
+  | Arm | Resolved | Win rate | P&L | ROI |
+  |---|---|---|---|---|
+  | weather (the thesis) | 207 | 34% | −$545.33 | −27.6% |
+  | momentum (the control) | 154 | 63% | −$101.56 | −7.7% |
+  | sports (disabled) | 10 | 0% | −$88.57 | −100% |
+
+- **The control arm is beating the thesis arm.** That was a pre-registered trigger: when I
+  built the momentum arm I wrote down in advance what each outcome would mean, specifically
+  so I couldn't rationalize afterward. "Momentum does better ⇒ the project's founding premise
+  needs revisiting." It did, so I revisited it — that's what the Brier test above is. Caveat
+  I'd state in an interview too: the arms don't trade the same opportunity set, so it isn't a
+  clean head-to-head, only a directional signal.
+- **The significance test has crossed its own threshold, on the losing side.**
+  `test_edge_significance.py` simulates 20,000 parallel universes under the null "the market
+  price was exactly fair." Overall p-value went **0.18 → 0.049 → 0.018** across three weekly
+  checks. This is now weak statistical evidence the strategies as built are *worse* than the
+  market price, not merely unproven. (Weather alone p=0.061, momentum p=0.107 — neither is
+  individually significant yet.)
+- **The loss is concentrated in one bucket, and it's a leverage effect.** By entry price:
+  **<$0.15 → −$501.83 (84 trades, 2% win rate vs ~6% implied)**; $0.15–0.75 roughly
+  breakeven (−2.7%); ≥$0.75 → −$182.10 (70% win vs ~85% implied). At sub-$0.15 prices the
+  payout leverage is ~6:1, so a small calibration miss becomes a large dollar loss.
+  A `MIN_ENTRY_PRICE = 0.15` guardrail now blocks that bucket — a tourniquet while the real
+  question was being answered, explicitly not a strategy.
+- Weather sigma calibration measured across all 6 cities: real forecast error (RMSE
+  1.9–3.4 °F by lead time) runs much tighter than the model's hand-set 2.0–7.2 °F curve.
+  **Deliberately still not acted on** — `simulate_sigma_fix.py` shows correcting it would
+  have moved the weather arm from −$545 to −$395, i.e. not the explanation. Fixing it now
+  would be tuning a parameter on a strategy with no established edge.
 - Sports edge appears structurally limited by data timing: the free odds-API tier only
   returns near-term games, and the original calibration backtest showed Kalshi's own price
   is already well-calibrated by then — so the theoretical inefficiency (Kalshi is close to a
   coin flip on sports a day out) may not be reachable with this data source. Deprioritized
   further sports build effort pending a paid tier being worth it.
-- **Checked the strategy's own thesis against real outcomes** (`analyze_edge_by_leadtime.py`):
-  edge should concentrate in longer-lead-time and higher-conviction trades if the strategy is
-  working as designed. Neither pattern showed up yet.
-- **Followed up by checking whether big edges are just illiquid-market noise**
-  (`analyze_edge_vs_liquidity.py`, like the earlier Miami sigma bug): partial support (biggest
-  edges do have wider average spread), but it doesn't explain the P&L — most losses happened
-  in liquid, tight-spread markets. Rules out the easy explanation; doesn't hand over the real
-  one yet.
-- **Momentum control arm now running** as a third strategy (started 2026-08-17), tracked
-  separately from the two fair-value arms so they can be compared directly. Too new for
-  results; first resolutions expected within a day or two.
+- **Sports arm disabled 2026-08-25.** Kalshi changed the `KXMLBGAME` market title format
+  (`"<A> vs <B> Winner?"` → `"<Team> wins"`), which broke `sports_fair_value.parse_matchup()`
+  — every market was silently skipped and the arm logged zero comparisons from ~Aug 21 on.
+  Its cron is commented out rather than left running as a no-op; the parser needs a rewrite
+  (the title no longer carries the opponent) before it comes back. Given sports was already
+  deprioritized, this is a low priority. Track record while it ran: 10 resolved, 0 wins,
+  −$88.57.
+- **Two candidate explanations were ruled out before the right one was found.** Worth
+  recording because the wrong answers took real work: (1) *lead-time decay* — the thesis says
+  edge should concentrate in longer-lead-time trades; measured, and the pattern is inverted
+  (24–72h is the worst bucket at −35.6%, 6–24h roughly breakeven). (2) *illiquid-market
+  noise* — the biggest claimed edges do sit in wider-spread markets, but 347 of 371 trades
+  happened in tight-spread markets and carry essentially all the losses. Both plausible, both
+  wrong. The Brier test above is what finally explained it.
 - Live dashboard (`dashboard.html`) shows current positions, P&L, a per-strategy comparison
   table, and a staleness warning if any collection job has gone quiet, regenerating every 5
   minutes.
-- **Not proceeding to live order execution (real money) until the significance test — or a
-  larger sample — shows a real, positive result.** That's the actual gate, not a date.
+- **Not proceeding to live order execution (real money), and the gate is now stricter than
+  it was.** It was "until the significance test shows a real positive result." It is now
+  "until some strategy demonstrates a measurable forecasting advantage over the market price
+  first" — P&L is too noisy to be the primary evidence at this sample size, and
+  `analyze_model_vs_market.py` tests the thing that actually has to be true.
+- **Known limitation: the pipeline runs on a laptop that sleeps.** macOS cron doesn't run
+  missed jobs on wake, which has caused three multi-day data gaps. The dashboard's staleness
+  banner catches it now, but the real fix is an always-on host — see `DEPLOY.md` for the
+  migration plan (the architecture ports with zero code changes; the live loop uses only
+  public endpoints and needs no credentials).
 
 ## Roadmap
 
@@ -352,7 +458,33 @@ arm already had fixed.
 - [x] Basic monitoring — dashboard staleness banner (passive; no active alert yet)
 - [x] Run a control strategy (price momentum) in parallel, to measure the fair-value approach
       against a baseline instead of against zero
-- [ ] Compare the arms once momentum has enough resolved trades
-- [ ] Live order execution — gated on the significance test showing real, positive edge, not
-      on a timeline
+- [x] Compare the arms once momentum has enough resolved trades — done; the control arm is
+      ahead, which triggered the premise review below
+- [x] **Test the founding premise directly** (`analyze_model_vs_market.py`) — does the
+      external model out-forecast the market at all? Answer for weather: no measurable
+      difference. This reframed everything below it.
+- [x] Check whether the obvious sigma fix would have helped before making it
+      (`simulate_sigma_fix.py`) — it wouldn't have
+- [ ] Live order execution — gated on a strategy first showing a **measurable forecasting
+      advantage over the market price**, not on P&L and not on a timeline
 - [x] Dashboard (live-updating, via `build_dashboard.py`)
+
+### Where this goes next
+
+The weather thesis is answered, so the honest options are narrow — and "keep tuning the
+weather model" isn't one of them.
+
+1. **Run the same Brier test on the momentum arm.** It's the only arm still outperforming
+   its null, and `analyze_model_vs_market.py` generalizes to it. If price momentum *does*
+   carry information the current price doesn't, that's a real finding and it's the opposite
+   of what this project assumed going in. Cheapest next step, highest information value.
+2. **Find a market category where the external source is genuinely better informed.** The
+   weather result isn't that external data never helps — it's that NWS forecasts are already
+   fully priced in by a market whose participants can read the same forecast. That argues for
+   sources with a real access or latency asymmetry, not just a good one. Economics releases
+   (CME FedWatch, nowcast models) are the strongest remaining candidate on that criterion.
+3. **Move to an always-on host** (`DEPLOY.md`) — independent of strategy direction, since
+   every option above needs uninterrupted data to evaluate.
+
+Not on the list: recalibrating sigma, lowering the edge threshold, or adding cities. All
+three tune a strategy that has now been measured and shown to have nothing to tune toward.
