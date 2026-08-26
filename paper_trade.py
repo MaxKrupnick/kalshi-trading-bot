@@ -10,6 +10,17 @@ import momentum_signal
 PAPER_TRADES_FILE = "paper_trades.csv"
 EDGE_THRESHOLD = 0.05  # minimum edge (vs actual ask price, not mid) to "trade"
 
+# Don't take a position priced below this. Guardrail, not a strategy choice:
+# the first ~350 resolved paper trades lost -$419 almost entirely on weather
+# longshots that entered under $0.15 (79 trades, 3% actual win rate vs ~6%
+# implied by what was paid). At those prices the payout leverage is ~6:1, so
+# the model's calibration error in the tails swamps its estimated edge and the
+# expected value goes negative even though the "edge" screen passes. The real
+# fix is recalibrating the forecast sigma (roadmap step 4) -- once that lands
+# and post-fix trades show the tails are trustworthy, this floor can be
+# lowered or removed.
+MIN_ENTRY_PRICE = 0.15
+
 # Series whose contracts are a 2-outcome market (one game, two teams), where
 # "team A yes" and "team B no" are the same directional bet under different
 # tickers. Keyed off the series rather than the trading source, because more
@@ -197,6 +208,8 @@ def evaluate_and_log(opportunity_iterables):
             side, entry_price, edge = best_side(opp)
             if edge < EDGE_THRESHOLD:
                 continue
+            if entry_price < MIN_ENTRY_PRICE:
+                continue  # see MIN_ENTRY_PRICE -- edge estimate isn't reliable this deep in the tail
             candidates.append((edge, opp, side, entry_price))
 
     candidates.sort(key=lambda c: c[0], reverse=True)

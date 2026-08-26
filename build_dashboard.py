@@ -15,7 +15,9 @@ REFRESH_SECONDS = 60
 STALENESS_CHECKS = [
     ("collect_data.log", 15, "Market data collection"),
     ("log_forecast.log", 60, "Weather forecast logging"),
-    ("log_sports_edge.log", 60, "Sports edge logging"),
+    # log_sports_edge intentionally omitted -- its cron is disabled as of
+    # 2026-08-25 (Kalshi changed the KXMLBGAME title format; parser needs a
+    # rewrite). Re-add this line when the sports arm is turned back on.
     ("log_weather_edge.log", 15, "Weather edge logging"),
     ("resolve_paper_trades.log", 30, "Paper trade resolution"),
     ("momentum_trade.log", 15, "Momentum paper trading"),

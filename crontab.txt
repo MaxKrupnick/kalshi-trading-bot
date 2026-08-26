@@ -1,0 +1,31 @@
+# Kalshi trading bot — cron schedule (reference copy, kept in git).
+#
+# Install on a new machine with:
+#   sed "s#__HOME__#$PWD#g" crontab.txt | crontab -
+# (run from the repo directory, with the venv already created at .venv/)
+#
+# All schedules are interval-based, not time-of-day, so the server's timezone
+# does not matter. The Python scripts handle per-city day boundaries themselves.
+
+# market prices -> market_data.csv
+*/15 * * * * cd __HOME__ && __HOME__/.venv/bin/python3 collect_data.py >> collect_data.log 2>&1
+
+# NWS forecasts -> forecast_log.csv (sigma-calibration dataset)
+0 * * * * cd __HOME__ && __HOME__/.venv/bin/python3 log_forecast.py >> log_forecast.log 2>&1
+
+# DISABLED 2026-08-25: Kalshi changed KXMLBGAME title format ("<A> vs <B> Winner?" -> "<Team> wins"),
+# so sports_fair_value.parse_matchup() matches nothing and this logs 0 comparisons. Sports arm was
+# already deprioritized (free odds tier only covers near-term games). Re-enable after fixing the parser.
+#5 * * * * cd __HOME__ && __HOME__/.venv/bin/python3 log_sports_edge.py >> log_sports_edge.log 2>&1
+
+# weather fair-value edge -> weather_edge_log.csv, feeds the weather paper-trading arm
+*/15 * * * * cd __HOME__ && __HOME__/.venv/bin/python3 log_weather_edge.py >> log_weather_edge.log 2>&1
+
+# resolve open paper trades against settled outcomes, update P&L
+10,40 * * * * cd __HOME__ && __HOME__/.venv/bin/python3 resolve_paper_trades.py >> resolve_paper_trades.log 2>&1
+
+# regenerate dashboard.html
+*/5 * * * * cd __HOME__ && __HOME__/.venv/bin/python3 build_dashboard.py >> build_dashboard.log 2>&1
+
+# momentum control arm (reads only local market_data.csv, no API cost)
+7,22,37,52 * * * * cd __HOME__ && __HOME__/.venv/bin/python3 paper_trade.py --momentum-only >> momentum_trade.log 2>&1
