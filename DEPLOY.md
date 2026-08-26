@@ -1,6 +1,7 @@
 # Deploying the bot to an always-on server
 
-**Status: draft.** Written 2026-08-25. Not executed yet — review before running.
+**Status: draft.** Written 2026-08-25, revised 2026-08-26. Not executed yet —
+review before running.
 
 ## Why
 
@@ -20,6 +21,20 @@ architecture.
   needed only by the (currently disabled) sports arm and by future live order
   execution. Bring them anyway so step 8 isn't blocked later.
 
+## 0. Push your local commits first
+
+The server gets its code by cloning from GitHub, so anything sitting
+uncommitted or unpushed on the laptop **will not be there**. Push via GitHub
+Desktop (command-line `git push` doesn't authenticate from this shell), then
+confirm the branch is clean:
+
+```bash
+git status && git log --oneline origin/main..HEAD
+```
+
+That second command should print nothing. If it lists commits, they haven't
+been pushed yet.
+
 ## 1. Provision the VM
 
 **Option A — DigitalOcean via GitHub Student Developer Pack (recommended).**
@@ -38,12 +53,37 @@ Either way you end up with `ssh <user>@<server-ip>`.
 ## 2. Base setup on the VM
 
 ```bash
-sudo apt update && sudo apt install -y python3-venv git
+sudo apt update && sudo apt install -y python3-venv git tzdata
+```
+
+`tzdata` matters: several scripts use `zoneinfo.ZoneInfo` for per-city day
+boundaries (Denver and LA aren't Eastern), and on a minimal image that raises
+`ZoneInfoNotFoundError` at runtime rather than at install time.
+
+**The repo is private**, so a plain `git clone` over HTTPS will fail —
+GitHub stopped accepting account passwords for git. Use a Personal Access
+Token. On GitHub: Settings → Developer settings → Personal access tokens →
+Fine-grained tokens → generate one scoped to just this repo with
+**Contents: Read-only**. Then, on the VM:
+
+```bash
 git clone https://github.com/cktzjcrpdv-netizen/kalshi-trading-bot.git
+# username: cktzjcrpdv-netizen
+# password: paste the token (not your GitHub password)
 cd kalshi-trading-bot
+git config credential.helper store   # so the weekly `git pull` doesn't re-prompt
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
+
+Read-only is deliberate — the server should never be able to push. Note that
+`credential.helper store` writes the token to `~/.git-credentials` in
+plaintext, which is the tradeoff for unattended pulls; a read-only,
+single-repo token keeps the blast radius small.
+
+Ubuntu 24.04 ships Python 3.12; the code uses nothing newer (the laptop
+happens to run 3.14, but only stdlib + `requests` + `python-dotenv` are in
+play).
 
 ## 3. Bring over the files git doesn't track
 
@@ -61,8 +101,14 @@ scp paper_trades.csv forecast_log.csv weather_edge_log.csv sports_edge_log.csv \
 ```
 
 `paper_trades.csv` is the entire paper-trading track record — losing it resets
-the experiment. `forecast_log.csv` is the sigma-calibration dataset. The rest
-are convenience (history the cron would otherwise take weeks to rebuild).
+the experiment. `forecast_log.csv` is the sigma-calibration dataset.
+`weather_edge_log.csv` is what `analyze_model_vs_market.py` scores, i.e. the
+evidence behind the project's headline finding. The rest are convenience
+(history the cron would otherwise take weeks to rebuild).
+
+`market_data.csv` is ~21 MB and the largest single transfer here; on a slow
+connection, send it last so a failure there doesn't block the small files that
+actually matter.
 
 The older one-off datasets (`market_data_old.csv`, `market_data_backfill.csv`,
 `market_data_settled.csv`) can come too if you want the backtests runnable on
@@ -86,16 +132,45 @@ you want logs in UTC.)
 
 1. Install [Tailscale](https://tailscale.com/download/linux) on the VM and on
    your laptop/phone (free personal plan). `sudo tailscale up`.
-2. Serve the file over the tailnet only:
+2. Serve the file over the tailnet **only**:
    ```bash
-   # add to crontab, or run under a tiny systemd service / tmux
-   cd ~/kalshi-trading-bot && .venv/bin/python3 -m http.server 8000 --bind 0.0.0.0
+   cd ~/kalshi-trading-bot
+   .venv/bin/python3 -m http.server 8000 --bind "$(tailscale ip -4)"
    ```
 3. Open `http://<vm-tailscale-name>:8000/dashboard.html` from any of your
-   devices. Nothing is exposed to the public internet.
+   devices.
 
-(Alternative: `scp` the file down when you want to look, or point a static host
-at it. Tailscale is the least fiddly.)
+⚠️ **Bind to the Tailscale IP, not `0.0.0.0`.** The VM has a public IP, so
+`--bind 0.0.0.0` would publish the dashboard — and a directory listing of the
+whole repo, including any CSV sitting in it — to the open internet on port
+8000. Binding to the tailnet address keeps it reachable only from your own
+devices. (`tailscale serve https / http://localhost:8000` is the tidier
+equivalent if you'd rather not think about bind addresses.)
+
+To keep it running after you log out, put it under systemd rather than a cron
+line — it's a long-lived process, not a periodic job, and cron would start a
+second copy every time it fired:
+
+```bash
+sudo tee /etc/systemd/system/kalshi-dashboard.service >/dev/null <<'UNIT'
+[Unit]
+Description=Kalshi dashboard (tailnet only)
+After=network-online.target tailscaled.service
+
+[Service]
+User=%i
+WorkingDirectory=/home/<user>/kalshi-trading-bot
+ExecStart=/bin/sh -c '/home/<user>/kalshi-trading-bot/.venv/bin/python3 -m http.server 8000 --bind "$(tailscale ip -4)"'
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+sudo systemctl enable --now kalshi-dashboard
+```
+
+(Alternative: `scp` the file down when you want to look. Tailscale is the least
+fiddly for phone access.)
 
 ## 6. Verify
 
@@ -111,6 +186,16 @@ done
 Then wait ~20 min and confirm the `.log` files have fresh timestamps and the
 dashboard's staleness banner is clear.
 
+Watch for two things specifically on a first run:
+
+- **`resolve_paper_trades.py` re-resolving trades that are already closed.** It
+  keys off `status == "open"` in the CSV you copied over, so if the copy is
+  stale relative to what the laptop has since resolved, you'll get duplicate
+  work (harmless) or a mismatched P&L (not). Copy `paper_trades.csv` *last*,
+  right before cutting over, and stop the laptop's cron first.
+- **A `ZoneInfoNotFoundError`** from any weather script means `tzdata` didn't
+  install — go back to step 2.
+
 ## 7. Keeping it current
 
 Development still happens on the laptop and pushes to GitHub. On the server:
@@ -125,13 +210,20 @@ gitignored).
 
 ## 8. Decommission the laptop cron
 
+Both machines running the same schedule means **both are appending to their own
+`paper_trades.csv`**, and the two track records will silently diverge. Don't
+leave them overlapping longer than a verification window.
+
 Once the server has run clean for a day:
 
 ```bash
-crontab -r   # on the LAPTOP — removes the now-duplicate schedule
+crontab -l > ~/laptop-crontab-backup.txt   # keep a copy first
+crontab -r                                 # on the LAPTOP
 ```
 
-Keep a copy first: `crontab -l > ~/laptop-crontab-backup.txt`.
+Then treat the **server's** `paper_trades.csv` as the real one from that moment
+on. If you want the laptop's copy for local analysis, `scp` it back down rather
+than letting the laptop keep writing its own.
 
 ## Cost summary
 
