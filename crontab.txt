@@ -35,5 +35,10 @@
 # regenerate dashboard.html
 */5 * * * * cd __HOME__ && __HOME__/.venv/bin/python3 build_dashboard.py >> build_dashboard.log 2>&1
 
+# CONCLUDED 2026-09-02: all three strategies measured, none has an edge. The momentum
+# arm stops opening new positions here. Note it was NOT stopped for losing money -- it was
+# roughly breakeven -- but because analyze_momentum_vs_market.py replays the signal from
+# market_data.csv, so further paper trades add no evidence the price log doesn't already
+# carry. Open positions are left to resolve so the final record is complete.
 # momentum control arm (reads only local market_data.csv, no API cost)
-7,22,37,52 * * * * cd __HOME__ && __HOME__/.venv/bin/python3 paper_trade.py --momentum-only >> momentum_trade.log 2>&1
+#7,22,37,52 * * * * cd __HOME__ && __HOME__/.venv/bin/python3 paper_trade.py --momentum-only >> momentum_trade.log 2>&1

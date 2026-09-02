@@ -22,8 +22,14 @@ That is the actual output of this project: not a profitable bot, but a working i
 for telling whether a strategy has any information advantage — and two strategies that
 didn't. The bot is the apparatus; the measurements are the result.
 
-No real money has ever been at risk. See [FINDINGS.md](FINDINGS.md) for the full write-up of
-both tests.
+No real money has ever been at risk. See **[FINDINGS.md](FINDINGS.md)** for the full write-up
+of all three tests.
+
+> **Project status: concluded 2026-09-02.** The strategy search is closed — all three
+> strategies were measured and none has an information advantage. Trading is stopped: every
+> arm's cron is disabled and no new positions are being opened. Data collection continues,
+> because it is free and the sample compounds; the open positions are being left to resolve
+> so the record finishes complete rather than truncated.
 
 ## Why this approach
 
@@ -478,14 +484,18 @@ arm already had fixed.
 *Updated 2026-09-02.*
 
 - Data collection running continuously (market prices + weather forecasts, all 6 cities).
-- **Paper trading track record: 790 resolved trades, 56% win rate, total P&L −$771.65
-  (−10.7% ROI).** By strategy:
+- **Paper trading track record: 795 resolved trades, 56% win rate, total P&L −$790.37
+  (−10.9% ROI).** By strategy:
 
   | Arm | Resolved | Win rate | P&L | ROI | State |
   |---|---|---|---|---|---|
-  | weather (the thesis) | 331 | 39% | −$666.56 | −21.2% | **disabled 2026-09-02** |
-  | momentum (the control) | 449 | 70% | −$16.52 | −0.4% | running as the null |
+  | weather (the thesis) | 333 | 39% | −$682.35 | −21.5% | disabled 2026-09-02 |
+  | momentum (the control) | 452 | 70% | −$19.45 | −0.5% | disabled 2026-09-02 |
   | sports | 10 | 0% | −$88.57 | −100% | disabled 2026-08-25 |
+
+  50 positions were still open at conclusion (33 momentum, 17 weather) and are being left to
+  resolve, so these totals will drift by a few dollars before the record is final. No new
+  positions are being opened.
 
 - **Both arms are now measured, and neither has an information advantage.** Weather: no
   measurable difference from the market (CI straddles zero). Momentum: measurably worse
@@ -495,9 +505,14 @@ arm already had fixed.
   further trades, −$121.23, spent re-confirming a conclusion already reached properly. The
   finding and the shutdown should have been the same commit. Open positions were left to
   resolve normally rather than discarded, so the record stays complete.
-- **Momentum stays running, as the null.** It is deliberately *not* being fixed or tuned —
-  it costs nothing, it needs no API calls beyond the price log, and a growing sample under a
-  known-negative strategy is exactly what a baseline is for.
+- **Momentum was stopped too, and not for losing money** — it finished roughly breakeven
+  (−0.5% ROI). It was stopped because `analyze_momentum_vs_market.py` replays the signal
+  directly from `market_data.csv`, so continued paper trading adds no evidence the price log
+  doesn't already carry. The price log is the thing worth accumulating; the trades were not.
+- **A third test was run after the first two** (`analyze_longshot_bias.py`), asking whether
+  the market's own price is structurally mispriced rather than whether my model beat it. The
+  favourite-longshot bias is clearly present and still isn't tradeable — see
+  [Three tests, three negatives](#three-tests-three-negatives).
 
 - **The control arm beat the thesis arm on P&L, and it still had no edge.** That comparison
   was a pre-registered trigger: when I built the momentum arm I wrote down in advance what
