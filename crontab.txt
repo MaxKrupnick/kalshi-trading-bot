@@ -18,8 +18,16 @@
 # already deprioritized (free odds tier only covers near-term games). Re-enable after fixing the parser.
 #5 * * * * cd __HOME__ && __HOME__/.venv/bin/python3 log_sports_edge.py >> log_sports_edge.log 2>&1
 
+# DISABLED 2026-09-02: the fair-value model was measured to have no forecasting
+# advantage over the market price (analyze_model_vs_market.py, commit 9fa2764:
+# Brier 0.0891 model vs 0.0881 market, 95% CI on the difference [-0.0020, +0.0042]).
+# With no information advantage the edge screen selects the model's own errors and
+# pays the spread, so every further trade is negative-expectancy by construction.
+# It kept trading for a week after that finding: 124 trades, -$121.23.
+# Open positions were left to resolve normally so the record stays complete.
+# Re-enable only if a model shows a measured Brier advantage over the market.
 # weather fair-value edge -> weather_edge_log.csv, feeds the weather paper-trading arm
-*/15 * * * * cd __HOME__ && __HOME__/.venv/bin/python3 log_weather_edge.py >> log_weather_edge.log 2>&1
+#*/15 * * * * cd __HOME__ && __HOME__/.venv/bin/python3 log_weather_edge.py >> log_weather_edge.log 2>&1
 
 # resolve open paper trades against settled outcomes, update P&L
 10,40 * * * * cd __HOME__ && __HOME__/.venv/bin/python3 resolve_paper_trades.py >> resolve_paper_trades.log 2>&1

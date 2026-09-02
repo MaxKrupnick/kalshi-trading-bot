@@ -1,14 +1,29 @@
 # Kalshi Trading Bot
 
-A data-driven trading bot for [Kalshi](https://kalshi.com) prediction markets, built as my
-first data science / software project. Goal: combine independent external data sources
-(weather forecasts, sports odds, economic data) with Kalshi's live market prices to find
-mispriced markets — rather than just guessing from price movement alone.
+A measurement study of whether [Kalshi](https://kalshi.com) prediction-market prices can be
+beaten — built as my first data science / software project, in the shape of a trading bot.
+Live data collection, two independent fair-value models, paper trading, and a dashboard.
+Three weeks of continuous data, 838 paper trades, and three falsification tests.
 
-**The headline result is a negative one, and it's the part of this project I'd point at
-first.** I built the strategy, ran it on paper for two weeks, and then built the test that
-could prove it wrong — and it did. Details in [The founding assumption, tested](#the-founding-assumption-tested).
-No real money has ever been at risk.
+**Every strategy I built or tested has been measured against the market, and all three lost.**
+
+| Test | Result | Verdict |
+|---|---|---|
+| **Weather** — NWS forecasts vs Kalshi price (the thesis) | Brier +0.0010, CI **[−0.0020, +0.0042]** | No measurable advantage |
+| **Momentum** — extrapolate recent price move (the control) | Brier +0.0034, CI **[+0.0014, +0.0055]** | Measurably **worse** than the price |
+| **Longshot bias** — is the market itself mispriced? | EV +2.6¢/contract, CI **[−0.0133, +0.0592]** | Real pattern, not tradeable |
+
+None of those verdicts comes from P&L. The first two score forecasts against real outcomes
+with a Brier score, over every logged comparison rather than only the ones that became
+trades. The third prices a structural anomaly at the real quoted ask and gives it an honest
+error bar.
+
+That is the actual output of this project: not a profitable bot, but a working instrument
+for telling whether a strategy has any information advantage — and two strategies that
+didn't. The bot is the apparatus; the measurements are the result.
+
+No real money has ever been at risk. See [FINDINGS.md](FINDINGS.md) for the full write-up of
+both tests.
 
 ## Why this approach
 
@@ -21,12 +36,17 @@ estimate** than the market, for markets where a good external predictor exists.
 forecasts an 80% chance of exceeding a strike price but Kalshi is only pricing it at 40%,
 that gap is the edge.
 
-> **Status of that premise: tested, and not supported for weather.** The argument above is
-> reasonable, and it's why I built the thing. It is also just an argument. Measured against
-> real outcomes, the NWS-derived model forecasts these markets *about as well as Kalshi's
-> price does* — not better. See the section below.
+> **Status of that premise: tested, and not supported — in either direction.** The argument
+> above is reasonable, and it's why I built the thing. It is also just an argument. Measured
+> against real outcomes, the NWS-derived model forecasts these markets *about as well as
+> Kalshi's price does* — not better. And the momentum strategy the argument dismisses as
+> "weak" turned out to be weak for real, but the argument's confidence in that was luck: it
+> took a separate test to establish, and for three weeks the paper P&L pointed the other way.
+> Both tests are below.
 
-## The founding assumption, tested
+## Three tests, three negatives
+
+### Test 1 — the thesis: does external data out-forecast the market?
 
 Every diagnostic I'd built asked "did the trades make money." That question is downstream
 of a more basic one I had never tested directly: **does the model actually know something
@@ -68,12 +88,53 @@ replayed all 207 resolved weather trades with the measured values (`simulate_sig
 not the explanation — and no amount of tuning a parameter creates an information advantage
 that isn't there.
 
-**What I'd claim from this:** not a profitable bot. A pipeline that collects real data
-continuously, a strategy implemented faithfully, and — the part that matters — a
-falsifiable test of my own premise that I built, ran, and believed when it came back
-negative. The measurement infrastructure is the durable artifact here; it would have caught
-this on any strategy, and it's what tells me the momentum arm is worth a closer look while
-the weather arm isn't.
+### Test 2 — the control: does price momentum out-forecast the price?
+
+The momentum arm was built as a deliberate control: the project's premise says trading
+Kalshi's own price movement should be weak, and that claim had never been measured either.
+Its "model" is a deterministic function of the market's own mid —
+`mid + 0.5 × (6h move)` — so the test reduces to a clean question: **does extrapolating half
+the recent move beat simply quoting the current price?**
+
+This test is why the gate exists. From 2026-08-26 the momentum arm was *profitable on paper*
+— +$108.74 across 296 resolved trades, after being deeply negative before that. Under the
+old gate ("wait for a positive result") that looks like a strategy graduating. So I ran the
+same Brier test on it (`analyze_momentum_vs_market.py`), replaying the signal over three
+weeks of price history on an hourly grid, scoring against real settlement:
+
+| Forecaster | Brier score (lower is better) |
+|---|---|
+| Momentum signal | 0.1623 |
+| Kalshi's market price | 0.1589 |
+
+95% CI on the difference, **resampling whole tickers**: **[+0.0014, +0.0055]** — entirely
+above zero.
+
+**The momentum signal is a measurably worse forecaster than the price it is derived from.**
+Not ambiguous like the weather result; definitely worse. The paper profit was luck, and the
+gate caught it — which is the entire reason I wrote the gate down before I needed it.
+
+It shows the same adverse selection as the weather arm, and more strongly: on the 1,094
+snapshots that cleared `EDGE_THRESHOLD`, the gap widens from +0.0034 to **+0.0096**. The
+screen preferentially selects the signal's worst calls in both arms.
+
+It survives the obvious robustness checks. Seven of nine market series point the same
+direction, and a 3-hour evaluation grid gives +0.0047 with the CI still clear of zero.
+
+One methodological upgrade over Test 1: that test *reported* the clustering problem (repeated
+snapshots of the same markets aren't independent draws) as a caveat. This one handles it, by
+bootstrapping over whole tickers instead of individual rows. Worth knowing what the caveat was
+hiding — the naive interval was [+0.0023, +0.0046], about half as wide as the honest one.
+
+### What I'd claim from this
+
+Not a profitable bot. A pipeline that collects real data continuously, two strategies
+implemented faithfully, and — the part that matters — falsifiable tests of my own premises
+that I built, ran, and believed when they came back negative. Twice, including once when the
+P&L was telling me what I wanted to hear.
+
+The measurement infrastructure is the durable artifact. It caught a strategy that was
+*making money* and correctly said no.
 
 ## Setup
 
@@ -154,6 +215,48 @@ Needs a Kalshi API key (`.env`: `KALSHI_API_KEY_ID`) and, for the sports side, a
     forecast uncertainty from `calibrate_sigma.py`, to check whether recalibrating sigma would
     actually have prevented the losses before editing the live model constants. It wouldn't
     have. Written specifically to avoid "fix the obvious-looking thing and hope."
+
+## Repository guide
+
+Twenty-one scripts in the root is a lot to land on cold. Grouped by what they're for:
+
+**The findings** — start here
+| File | |
+|---|---|
+| `FINDINGS.md` | The write-up: both tests, method, limitations |
+| `analyze_model_vs_market.py` | Test 1 — is the weather model a better forecaster than the market? |
+| `analyze_momentum_vs_market.py` | Test 2 — is the momentum signal a better forecaster than the market? |
+| `analyze_longshot_bias.py` | Test 3 — is the market's own price structurally mispriced at the extremes? |
+
+**The live pipeline** — what cron runs, see `crontab.txt`
+| File | |
+|---|---|
+| `collect_data.py` | Market prices → `market_data.csv`, every 15 min |
+| `log_forecast.py` | NWS forecasts → `forecast_log.csv`, hourly |
+| `paper_trade.py` | Opens paper positions from a signal's opportunities |
+| `resolve_paper_trades.py` | Settles open positions against real outcomes |
+| `build_dashboard.py` | Regenerates `dashboard.html` every 5 min |
+
+**The strategies**
+| File | |
+|---|---|
+| `weather_fair_value.py` | NWS forecast → probability, vs Kalshi's price *(arm disabled — no measured edge)* |
+| `momentum_signal.py` | Recent price move → probability *(control arm — measured worse than the price)* |
+| `sports_fair_value.py` | Sportsbook odds → probability *(disabled — Kalshi changed the title format)* |
+| `log_weather_edge.py`, `log_sports_edge.py` | Cron entry points that log comparisons and feed paper trading |
+
+**Diagnostics** — the questions asked along the way
+| File | Question it answers |
+|---|---|
+| `calibrate_sigma.py` | How wrong are NWS forecasts, really? |
+| `simulate_sigma_fix.py` | Would fixing that have saved the weather arm? *(no)* |
+| `test_edge_significance.py` | Is the P&L distinguishable from luck? |
+| `analyze_edge_by_leadtime.py` | Does edge concentrate in longer-dated trades? *(no — inverted)* |
+| `analyze_edge_vs_liquidity.py` | Are the losses coming from illiquid markets? *(no)* |
+| `backtest_calibration.py` | Is Kalshi's own price well calibrated? |
+| `backfill_prices.py`, `backfill_settled.py`, `fetch_actual_temp.py` | Historical data pulls |
+
+**`exploration/`** — the first scripts I wrote, kept as history. Nothing depends on them.
 
 ## Notable problems I caught
 
@@ -372,26 +475,39 @@ arm already had fixed.
 
 ## Current status
 
-*Updated 2026-08-26.*
+*Updated 2026-09-02.*
 
 - Data collection running continuously (market prices + weather forecasts, all 6 cities).
-- Both fair-value signals (weather + MLB sportsbook odds) built, logging hourly/every 15
-  minutes, and feeding paper trading.
-- **Paper trading track record: 371 resolved trades, 45% win rate, total P&L −$735.46
-  (−21.8% ROI).** By strategy:
+- **Paper trading track record: 790 resolved trades, 56% win rate, total P&L −$771.65
+  (−10.7% ROI).** By strategy:
 
-  | Arm | Resolved | Win rate | P&L | ROI |
-  |---|---|---|---|---|
-  | weather (the thesis) | 207 | 34% | −$545.33 | −27.6% |
-  | momentum (the control) | 154 | 63% | −$101.56 | −7.7% |
-  | sports (disabled) | 10 | 0% | −$88.57 | −100% |
+  | Arm | Resolved | Win rate | P&L | ROI | State |
+  |---|---|---|---|---|---|
+  | weather (the thesis) | 331 | 39% | −$666.56 | −21.2% | **disabled 2026-09-02** |
+  | momentum (the control) | 449 | 70% | −$16.52 | −0.4% | running as the null |
+  | sports | 10 | 0% | −$88.57 | −100% | disabled 2026-08-25 |
 
-- **The control arm is beating the thesis arm.** That was a pre-registered trigger: when I
-  built the momentum arm I wrote down in advance what each outcome would mean, specifically
-  so I couldn't rationalize afterward. "Momentum does better ⇒ the project's founding premise
-  needs revisiting." It did, so I revisited it — that's what the Brier test above is. Caveat
-  I'd state in an interview too: the arms don't trade the same opportunity set, so it isn't a
-  clean head-to-head, only a directional signal.
+- **Both arms are now measured, and neither has an information advantage.** Weather: no
+  measurable difference from the market (CI straddles zero). Momentum: measurably worse
+  (CI entirely above zero). See [Three tests, three negatives](#three-tests-three-negatives).
+- **The weather arm kept trading for a week after it was disproven, and that's on me.**
+  The Brier test landed 2026-08-26 and the arm's cron wasn't stopped until 2026-09-02 — 124
+  further trades, −$121.23, spent re-confirming a conclusion already reached properly. The
+  finding and the shutdown should have been the same commit. Open positions were left to
+  resolve normally rather than discarded, so the record stays complete.
+- **Momentum stays running, as the null.** It is deliberately *not* being fixed or tuned —
+  it costs nothing, it needs no API calls beyond the price log, and a growing sample under a
+  known-negative strategy is exactly what a baseline is for.
+
+- **The control arm beat the thesis arm on P&L, and it still had no edge.** That comparison
+  was a pre-registered trigger: when I built the momentum arm I wrote down in advance what
+  each outcome would mean, so I couldn't rationalize afterward. "Momentum does better ⇒ the
+  founding premise needs revisiting." It did, so I revisited it — which produced both Brier
+  tests. The follow-through matters more than the trigger did: momentum's P&L advantage
+  (and later its outright profit) turned out to be noise on a signal that forecasts *worse*
+  than the price. Caveat I'd still state in an interview: the arms don't trade the same
+  opportunity set, so the P&L comparison was only ever directional. The Brier tests are the
+  part that carries weight.
 - **The significance test has crossed its own threshold, on the losing side.**
   `test_edge_significance.py` simulates 20,000 parallel universes under the null "the market
   price was exactly fair." Overall p-value went **0.18 → 0.049 → 0.018** across three weekly
@@ -465,26 +581,55 @@ arm already had fixed.
       difference. This reframed everything below it.
 - [x] Check whether the obvious sigma fix would have helped before making it
       (`simulate_sigma_fix.py`) — it wouldn't have
+- [x] **Run the same Brier test on the momentum arm** (`analyze_momentum_vs_market.py`) —
+      answer: momentum forecasts measurably *worse* than the market price. The arm was
+      profitable on paper at the time, and the gate correctly rejected it anyway.
 - [ ] Live order execution — gated on a strategy first showing a **measurable forecasting
-      advantage over the market price**, not on P&L and not on a timeline
+      advantage over the market price**, not on P&L and not on a timeline. **No candidate
+      currently exists**: both strategies built have been measured and neither qualifies.
 - [x] Dashboard (live-updating, via `build_dashboard.py`)
 
 ### Where this goes next
 
-The weather thesis is answered, so the honest options are narrow — and "keep tuning the
-weather model" isn't one of them.
+Both premises are answered, so the honest options are narrow — and "keep tuning" is not one
+of them.
 
-1. **Run the same Brier test on the momentum arm.** It's the only arm still outperforming
-   its null, and `analyze_model_vs_market.py` generalizes to it. If price momentum *does*
-   carry information the current price doesn't, that's a real finding and it's the opposite
-   of what this project assumed going in. Cheapest next step, highest information value.
-2. **Find a market category where the external source is genuinely better informed.** The
-   weather result isn't that external data never helps — it's that NWS forecasts are already
-   fully priced in by a market whose participants can read the same forecast. That argues for
-   sources with a real access or latency asymmetry, not just a good one. Economics releases
-   (CME FedWatch, nowcast models) are the strongest remaining candidate on that criterion.
-3. **Move to an always-on host** (`DEPLOY.md`) — independent of strategy direction, since
-   every option above needs uninterrupted data to evaluate.
+**The project is being finished as a measurement study rather than extended as a trading
+bot.** That isn't a consolation framing; it's what the work actually produced. A bot that
+found no edge in two independent strategies, and can show *why* with a scored test rather
+than a shrug, is a more defensible artifact than one claiming a backtested profit. Anyone
+who has looked at a few of these assumes the profitable ones are overfit — and at n=790 with
+this variance, they would be right to.
 
-Not on the list: recalibrating sigma, lowering the edge threshold, or adding cities. All
-three tune a strategy that has now been measured and shown to have nothing to tune toward.
+What that means concretely:
+
+1. **Keep the collectors running.** They cost nothing, need no credentials, and the sample
+   compounds. Every question below gets easier with three months of data than with three
+   weeks. This is the single highest-value thing to *not* stop doing.
+2. **Write up the two tests properly** — done, in [FINDINGS.md](FINDINGS.md).
+3. **Revisit with more data, not with more parameters.** The weather CI straddles zero at
+   n=5,376 comparisons; a larger sample could resolve it in either direction. That is a real
+   open question. Re-running an existing test on more data is legitimate; tuning the strategy
+   to make the old data look better is not.
+
+Deferred, with reasons rather than a shrug:
+
+- **A category with a genuine access or latency asymmetry.** The weather result isn't that
+  external data never helps — it's that NWS forecasts are already priced in by a market whose
+  participants read the same forecast. Economics releases (CME FedWatch, nowcasts) were the
+  strongest remaining candidate, but they fail the *same* test on inspection: also public,
+  also read by everyone. Worth pursuing only with a source that isn't universally available,
+  which I don't currently have.
+- **Fixing the sports parser.** Kalshi changed the `KXMLBGAME` title format and the arm has
+  been dark since 2026-08-21. Cheap to fix, but it would restart an arm that was already
+  deprioritized on structural grounds (free odds tier only covers near-term games, by which
+  point Kalshi is already well-calibrated).
+- **Always-on hosting** (`DEPLOY.md`). The migration plan is written and the architecture
+  ports without code changes. It mattered when a strategy was being evaluated against a
+  deadline; with no live candidate, laptop-sleep gaps are a data-quality annoyance rather
+  than a blocker.
+
+Not on the list, and worth stating explicitly: recalibrating sigma, lowering the edge
+threshold, adding cities, or increasing position size. All four tune strategies that have now
+been measured and shown to have nothing to tune toward. The sigma one in particular was
+checked before being applied (`simulate_sigma_fix.py`) and would not have worked.
